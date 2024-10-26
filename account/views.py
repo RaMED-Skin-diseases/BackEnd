@@ -4,6 +4,7 @@ from .models import Signup_patient, Signup_doc
 from django.views.decorators.csrf import csrf_exempt
 
 
+
 # Create your views here.
 
 @csrf_exempt
@@ -11,7 +12,7 @@ def signup_patient(request):
     if request.method == "POST":
         f_name = request.POST.get("f_name")
         l_name = request.POST.get("l_name")
-        age = request.POST.get("age")
+        date_of_birth = request.POST.get("date_of_birth")
         email = request.POST.get("email")
         gender = request.POST.get("gender")
         password = request.POST.get("password")
@@ -20,7 +21,7 @@ def signup_patient(request):
         patient = Signup_patient(
             f_name=f_name,
             l_name=l_name,
-            age=age,
+            date_of_birth=date_of_birth,
             email=email,
             gender=gender,
             password=password,
@@ -35,7 +36,7 @@ def signup_doc(request):
     if request.method == "POST":
         f_name = request.POST.get("f_name")
         l_name = request.POST.get("l_name")
-        age = request.POST.get("age")
+        date_of_birth = request.POST.get("date_of_birth")
         email = request.POST.get("email")
         gender = request.POST.get("gender")
         password = request.POST.get("password")
@@ -47,7 +48,7 @@ def signup_doc(request):
         doctor = Signup_doc(
             f_name=f_name,
             l_name=l_name,
-            age=age,
+            date_of_birth=date_of_birth,
             email=email,
             gender=gender,
             password=password,
