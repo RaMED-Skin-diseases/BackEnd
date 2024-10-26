@@ -1,5 +1,4 @@
 from django.db import models
-from django.contrib.auth.hashers import make_password
 
 # Create your models here.
 
@@ -18,10 +17,14 @@ class Signup_patient(models.Model):
     gender = models.CharField(max_length=6, choices=GENDER_CHOICES)
     password = models.CharField(max_length=20)
     username = models.CharField(max_length=20, unique=True)
-
-    def save(self, *args, **kwargs):
-        self.password = make_password(self.password)
-        super().save(*args, **kwargs)
+    verification_code = models.CharField(max_length=6, blank=True, null=True)
+    code_created_at = models.DateTimeField(
+        auto_now_add=True, blank=True, null=True)
+    is_verified = models.BooleanField(default=False)
+    
+    class Meta:
+        verbose_name = "Patient Account"
+        verbose_name_plural = "Patient Accounts"
 
 
 class Signup_doc(models.Model):
@@ -35,7 +38,11 @@ class Signup_doc(models.Model):
     info = models.TextField(blank=True, null=True)
     specialization = models.CharField(max_length=100)
     clinic_details = models.TextField(blank=True, null=True)
-
-    def save(self, *args, **kwargs):
-        self.password = make_password(self.password)
-        super().save(*args, **kwargs)
+    verification_code = models.CharField(max_length=6, blank=True, null=True)
+    code_created_at = models.DateTimeField(
+        auto_now_add=True, blank=True, null=True)
+    is_verified = models.BooleanField(default=False)
+    
+    class Meta:
+        verbose_name = "Doctor Account"
+        verbose_name_plural = "Doctor Accounts"
