@@ -8,8 +8,13 @@ GENDER_CHOICES = [
     ('Female', 'Female'),
 ]
 
+USER_TYPE_CHOICES = [
+    ('Patient', 'Patient'),
+    ('Doctor', 'Doctor'),
+]
 
-class Signup_patient(models.Model):
+
+class User(models.Model):
     f_name = models.CharField(max_length=100)
     l_name = models.CharField(max_length=100)
     date_of_birth = models.DateField(null=True)
@@ -17,32 +22,18 @@ class Signup_patient(models.Model):
     gender = models.CharField(max_length=6, choices=GENDER_CHOICES)
     password = models.CharField(max_length=20)
     username = models.CharField(max_length=20, unique=True)
-    verification_code = models.CharField(max_length=6, blank=True, null=True)
-    code_created_at = models.DateTimeField(
-        auto_now_add=True, blank=True, null=True)
-    is_verified = models.BooleanField(default=False)
-    
-    class Meta:
-        verbose_name = "Patient Account"
-        verbose_name_plural = "Patient Accounts"
 
+    user_type = models.CharField(max_length=10, choices=USER_TYPE_CHOICES)
 
-class Signup_doc(models.Model):
-    f_name = models.CharField(max_length=100)
-    l_name = models.CharField(max_length=100)
-    date_of_birth = models.DateField(null=True)
-    email = models.EmailField(unique=True)
-    gender = models.CharField(max_length=6, choices=GENDER_CHOICES)
-    password = models.CharField(max_length=20)
-    username = models.CharField(max_length=20, unique=True)
     info = models.TextField(blank=True, null=True)
-    specialization = models.CharField(max_length=100)
+    specialization = models.CharField(max_length=100, null=True)
     clinic_details = models.TextField(blank=True, null=True)
+
     verification_code = models.CharField(max_length=6, blank=True, null=True)
     code_created_at = models.DateTimeField(
         auto_now_add=True, blank=True, null=True)
     is_verified = models.BooleanField(default=False)
-    
+
     class Meta:
-        verbose_name = "Doctor Account"
-        verbose_name_plural = "Doctor Accounts"
+        verbose_name = "User Account"
+        verbose_name_plural = "User Accounts"
