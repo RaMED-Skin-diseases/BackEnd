@@ -2,7 +2,7 @@ from django.utils import timezone
 import string
 from django.shortcuts import render, redirect
 from django.http import HttpResponse
-from .models import User
+from .models import User, TempUser
 from django.views.decorators.csrf import csrf_exempt
 from django.core.mail import send_mail
 from django.conf import settings
@@ -15,6 +15,7 @@ from datetime import datetime
 def generate_verification_code(length=6):
     """Generate a random verification code of given length."""
     return ''.join(random.choices(string.digits, k=length))
+
 
 @csrf_exempt
 def signup(request):
@@ -32,30 +33,32 @@ def signup(request):
         clinic_details = request.POST.get("clinic_details")
         verification_code = generate_verification_code()
 
-        if User.objects.filter(email=email).exists():
+        if User.objects.filter(email=email).exists() or TempUser.objects.filter(email=email).exists():
             return HttpResponse("Email already exists.")
-        if User.objects.filter(username=username).exists():
+        if User.objects.filter(username=username).exists() or TempUser.objects.all().filter(username=username).exists():
             return HttpResponse("Username already exits.")
 
-        request.session['user_data'] = {
-            'f_name': f_name,
-            'l_name': l_name,
-            'date_of_birth': date_of_birth,
-            'email': email,
-            'gender': gender,
-            'password': password,
-            'username': username,
-            'user_type': user_type,
-            'info': info,
-            'specialization': specialization,
-            'clinic_details': clinic_details,
-            'verification_code': verification_code,
-            'verification_code': verification_code,
-            'code_created_at': timezone.now().strftime('%Y-%m-%d %H:%M:%S'),
-        }
+        temp_user = TempUser(
+            f_name=f_name,
+            l_name=l_name,
+            date_of_birth=date_of_birth,
+            email=email,
+            gender=gender,
+            password=password,
+            username=username,
+            user_type=user_type,
+            info=info,
+            specialization=specialization,
+            clinic_details=clinic_details,
+            verification_code=verification_code,
+            code_created_at=timezone.now(),
+        )
+        temp_user.save()
+
         send_mail(
-            'Verify Your Email',
-            f'Your verification code is: {verification_code}',
+            'Verification Code',
+            f'Hi {f_name} {l_name},\n\nUse the following code to verify your email address to complete your signup process: {
+                verification_code} \n\nThis code will expire in 10 minutes.\n\nRegards,\nRaMed Team',
             settings.DEFAULT_FROM_EMAIL,
             [email],
             fail_silently=False,
@@ -69,38 +72,31 @@ def verify_email(request):
     if request.method == "POST":
         email = request.POST.get("email")
         code = request.POST.get("verification_code")
-        user_data = request.session.get('user_data')
 
-        if user_data:
-            if 'email' in user_data and user_data['email'] == email:
-                if user_data['verification_code'] == code:
-                    code_created_at = datetime.strptime(
-                        user_data['code_created_at'], '%Y-%m-%d %H:%M:%S')
-                    code_created_at = timezone.make_aware(code_created_at)
-                    if timezone.now() - code_created_at < timezone.timedelta(minutes=5):
-                        user = User(
-                            f_name=user_data['f_name'],
-                            l_name=user_data['l_name'],
-                            date_of_birth=user_data['date_of_birth'],
-                            email=user_data['email'],
-                            gender=user_data['gender'],
-                            password=user_data['password'],
-                            username=user_data['username'],
-                            user_type=user_data['user_type'],
-                            info=user_data['info'],
-                            specialization=user_data['specialization'],
-                            clinic_details=user_data['clinic_details'],
-                            is_verified=True,
-                        )
-                        user.save()
-                        del request.session['user_data']
-                        return HttpResponse("Email verified successfully. You are now registered.")
-                    else:
-                        return HttpResponse("Verification code has expired.")
-                else:
-                    return HttpResponse("Invalid verification code.")
+        try:
+            temp_user = TempUser.objects.get(
+                email=email, verification_code=code)
+            if timezone.now() - temp_user.code_created_at < timezone.timedelta(minutes=10):
+                user = User(
+                    f_name=temp_user.f_name,
+                    l_name=temp_user.l_name,
+                    date_of_birth=temp_user.date_of_birth,
+                    email=temp_user.email,
+                    gender=temp_user.gender,
+                    password=temp_user.password,
+                    username=temp_user.username,
+                    user_type=temp_user.user_type,
+                    info=temp_user.info,
+                    specialization=temp_user.specialization,
+                    clinic_details=temp_user.clinic_details,
+                    is_verified=True,
+                )
+                user.save()
+                temp_user.delete()
+                return HttpResponse("Email verified successfully. You are now registered.")
             else:
-                return HttpResponse("Email does not match the pending registration.")
-        else:
-            return HttpResponse("No pending registration found for this email.")
+                temp_user.delete()
+                return HttpResponse("Verification code has expired.")
+        except TempUser.DoesNotExist:
+            return HttpResponse("Invalid verification code.")
     return render(request, "account/verify_email.html")
