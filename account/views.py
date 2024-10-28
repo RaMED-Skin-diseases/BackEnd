@@ -55,15 +55,29 @@ def signup(request):
         )
         temp_user.save()
 
-        send_mail(
-            'Verification Code',
-            f'Hi {f_name} {l_name},\n\nUse the following code to verify your email address to complete your signup process: {
-                verification_code} \n\nThis code will expire in 10 minutes.\n\nRegards,\nRaMed Team',
-            settings.DEFAULT_FROM_EMAIL,
-            [email],
-            fail_silently=False,
-        )
-        return HttpResponse("User registered successfully. Please check your email for the verification code.")
+        try:
+            if user_type == "Patient":
+                send_mail(
+                    'Verification Code',
+                    f'Hi {f_name} {l_name},\n\nUse the following code to verify your email address to complete your signup process:\n\n {
+                        verification_code} \n\nThis code will expire in 10 minutes.\n\nRegards,\nRaMed Team',
+                    settings.DEFAULT_FROM_EMAIL,
+                    [email],
+                    fail_silently=False,
+                )
+            else:
+                send_mail(
+                    'Verification Code',
+                    f'Hi DR. {f_name} {l_name},\n\nUse the following code to verify your email address to complete your signup process:\n\n {
+                        verification_code} \n\nThis code will expire in 10 minutes.\n\nRegards,\nRaMed Team',
+                    settings.DEFAULT_FROM_EMAIL,
+                    [email],
+                    fail_silently=False,
+                )
+            return HttpResponse("User registered successfully. Please check your email for the verification code.")
+        except Exception as e:
+            temp_user.delete()
+            return HttpResponse("Failed to send email. Please try again later.")
     return render(request, "account/signup.html")
 
 
@@ -72,11 +86,13 @@ def verify_email(request):
     if request.method == "POST":
         email = request.POST.get("email")
         code = request.POST.get("verification_code")
+        expiry_time = timezone.timedelta(minutes=10)
+
+        temp_user = TempUser.objects.get(
+            email=email, verification_code=code)
 
         try:
-            temp_user = TempUser.objects.get(
-                email=email, verification_code=code)
-            if timezone.now() - temp_user.code_created_at < timezone.timedelta(minutes=10):
+            if timezone.now() - temp_user.code_created_at < expiry_time:
                 user = User(
                     f_name=temp_user.f_name,
                     l_name=temp_user.l_name,
@@ -92,11 +108,14 @@ def verify_email(request):
                     is_verified=True,
                 )
                 user.save()
+                
                 temp_user.delete()
                 return HttpResponse("Email verified successfully. You are now registered.")
             else:
                 temp_user.delete()
                 return HttpResponse("Verification code has expired.")
         except TempUser.DoesNotExist:
+            if timezone.now() - temp_user.code_created_at < expiry_time:
+                temp_user.delete()
             return HttpResponse("Invalid verification code.")
     return render(request, "account/verify_email.html")
