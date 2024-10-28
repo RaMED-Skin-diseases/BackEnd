@@ -108,7 +108,7 @@ def verify_email(request):
                     is_verified=True,
                 )
                 user.save()
-                
+
                 temp_user.delete()
                 return HttpResponse("Email verified successfully. You are now registered.")
             else:
