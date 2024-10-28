@@ -119,3 +119,23 @@ def verify_email(request):
                 temp_user.delete()
             return HttpResponse("Invalid verification code.")
     return render(request, "account/verify_email.html")
+
+
+@csrf_exempt
+def login(request):
+    if request.method == "POST":
+        username_email = request.POST.get("username_email")
+        password = request.POST.get("password")
+
+        user = User.objects.filter(username=username_email).first(
+        ) or User.objects.filter(email=username_email).first()
+
+        if user.is_verified:
+            if user and user.password == password:
+                return HttpResponse("Login successful.")
+            else:
+                return HttpResponse("Invalid credentials.")
+        else:
+            return HttpResponse("Email not verified. Please verify your email to login.")
+
+    return render(request, "account/login.html")
