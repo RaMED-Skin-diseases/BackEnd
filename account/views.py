@@ -7,7 +7,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.core.mail import send_mail
 from django.conf import settings
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 # Create your views here.
@@ -139,3 +139,66 @@ def login(request):
             return HttpResponse("Email not verified. Please verify your email to login.")
 
     return render(request, "account/login.html")
+
+
+def password_reset(request):
+    response_message = None  # Initialize a response message variable
+    context = {}  # Initialize context to pass to the template
+
+    if request.method == "POST":
+        stage = request.POST.get("stage")
+
+        if stage == "request_reset":
+            # Handle password reset request (Stage 1)
+            email = request.POST.get("email")
+            user = User.objects.filter(email=email).first()
+
+            if not user:
+                response_message = "Email not found."
+            else:
+                # Generate and save the verification code
+                verification_code = generate_verification_code()
+                user.verification_code = verification_code
+                user.code_created_at = timezone.now()
+                user.save()
+
+                # Send the email with the verification code
+                try:
+                    send_mail(
+                        'Password Reset Verification Code',
+                        f'Hi {user.f_name} {user.l_name},\n\nUse the following code to reset your password:\n\n{verification_code}\n\nThis code will expire in 10 minutes.\n\nRegards,\nYour Team',
+                        settings.DEFAULT_FROM_EMAIL,
+                        [email],
+                        fail_silently=False,
+                    )
+                    # Set context for stage 2 and continue
+                    context['stage'] = "verify_and_reset"
+                    context['email'] = email
+                    response_message = "Verification code sent. Please check your email."
+                except Exception as e:
+                    response_message = "Failed to send email. Please try again later."
+
+        elif stage == "verify_and_reset":
+            # Handle password reset verification (Stage 2)
+            email = request.POST.get("email")
+            verification_code = request.POST.get("verification_code")
+            new_password = request.POST.get("new_password")
+            expiry_time = timedelta(minutes=10)
+
+            try:
+                user = User.objects.get(email=email, verification_code=verification_code)
+                if timezone.now() - user.code_created_at < expiry_time:
+                    # Update the password
+                    user.password = new_password
+                    user.verification_code = None  # Clear the verification code
+                    user.code_created_at = None    # Clear the timestamp
+                    user.save()
+
+                    response_message = "Password reset successfully. You can now log in with your new password."
+                else:
+                    response_message = "Verification code has expired. Please request a new password reset."
+            except User.DoesNotExist:
+                response_message = "Invalid email or verification code."
+
+    context['message'] = response_message
+    return render (request, "account/password_reset.html",context)
