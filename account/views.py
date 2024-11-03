@@ -141,6 +141,7 @@ def login(request):
     return render(request, "account/login.html")
 
 
+@csrf_exempt
 def password_reset(request):
     response_message = None  # Initialize a response message variable
     context = {}  # Initialize context to pass to the template
@@ -150,8 +151,9 @@ def password_reset(request):
 
         if stage == "request_reset":
             # Handle password reset request (Stage 1)
-            email = request.POST.get("email")
-            user = User.objects.filter(email=email).first()
+            username_email = request.POST.get("username_email")
+            user = User.objects.filter(email=username_email).first(
+            ) or User.objects.filter(username=username_email).first()
 
             if not user:
                 response_message = "Email not found."
@@ -166,27 +168,29 @@ def password_reset(request):
                 try:
                     send_mail(
                         'Password Reset Verification Code',
-                        f'Hi {user.f_name} {user.l_name},\n\nUse the following code to reset your password:\n\n{verification_code}\n\nThis code will expire in 10 minutes.\n\nRegards,\nYour Team',
+                        f'Hi {user.f_name} {user.l_name},\n\nUse the following code to reset your password:\n\n{
+                            verification_code}\n\nThis code will expire in 10 minutes.\n\nRegards,\nYour Team',
                         settings.DEFAULT_FROM_EMAIL,
-                        [email],
+                        [user.email],
                         fail_silently=False,
                     )
                     # Set context for stage 2 and continue
                     context['stage'] = "verify_and_reset"
-                    context['email'] = email
+                    context['email'] = user.email
                     response_message = "Verification code sent. Please check your email."
                 except Exception as e:
                     response_message = "Failed to send email. Please try again later."
 
         elif stage == "verify_and_reset":
             # Handle password reset verification (Stage 2)
-            email = request.POST.get("email")
+            username_email = request.POST.get("username_email")
             verification_code = request.POST.get("verification_code")
             new_password = request.POST.get("new_password")
             expiry_time = timedelta(minutes=10)
 
             try:
-                user = User.objects.get(email=email, verification_code=verification_code)
+                user = User.objects.filter(email=username_email).first(
+                ) or User.objects.filter(username=username_email).first()
                 if timezone.now() - user.code_created_at < expiry_time:
                     # Update the password
                     user.password = new_password
@@ -201,4 +205,4 @@ def password_reset(request):
                 response_message = "Invalid email or verification code."
 
     context['message'] = response_message
-    return render (request, "account/password_reset.html",context)
+    return render(request, "account/password_reset.html", context)
