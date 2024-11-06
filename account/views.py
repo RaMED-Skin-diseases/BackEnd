@@ -8,6 +8,8 @@ from django.core.mail import send_mail
 from django.conf import settings
 import random
 from datetime import datetime, timedelta
+from django.core.exceptions import ValidationError
+from django.core.validators import MinLengthValidator, RegexValidator
 
 
 # Create your views here.
@@ -23,10 +25,10 @@ def signup(request):
         f_name = request.POST.get("f_name")
         l_name = request.POST.get("l_name")
         date_of_birth = request.POST.get("date_of_birth")
-        email = request.POST.get("email")
+        email = request.POST.get("email").lower()
         gender = request.POST.get("gender")
         password = request.POST.get("password")
-        username = request.POST.get("username")
+        username = request.POST.get("username").lower()
         user_type = request.POST.get("user_type")
         info = request.POST.get("info")
         specialization = request.POST.get("specialization")
@@ -37,6 +39,23 @@ def signup(request):
             return HttpResponse("Email already exists.")
         if User.objects.filter(username=username).exists() or TempUser.objects.all().filter(username=username).exists():
             return HttpResponse("Username already exits.")
+        try:
+            MinLengthValidator(8)(password)
+        except ValidationError:
+            return HttpResponse("Password must be at least 8 characters long.")
+        try:
+            MinLengthValidator(3) and RegexValidator(
+                r'^(?=.*[a-zA-Z])[a-zA-Z0-9]*$')(username)
+        except ValidationError:
+            return HttpResponse("Username must be at least 8 characters long and include letters.")
+        try:
+            RegexValidator(r'^[a-zA-Z]+$')(f_name)
+        except ValidationError:
+            return HttpResponse("First name must contain only letters.")
+        try:
+            RegexValidator(r'^[a-zA-Z]+$')(l_name)
+        except ValidationError:
+            return HttpResponse("Last name must contain only letters.")
 
         temp_user = TempUser(
             f_name=f_name,
@@ -56,24 +75,23 @@ def signup(request):
         temp_user.save()
 
         try:
-            if user_type == "Patient":
-                send_mail(
-                    'Verification Code',
-                    f'Hi {f_name} {l_name},\n\nUse the following code to verify your email address to complete your signup process:\n\n {
-                        verification_code} \n\nThis code will expire in 10 minutes.\n\nRegards,\nRaMed Team',
-                    settings.DEFAULT_FROM_EMAIL,
-                    [email],
-                    fail_silently=False,
-                )
-            else:
-                send_mail(
-                    'Verification Code',
-                    f'Hi DR. {f_name} {l_name},\n\nUse the following code to verify your email address to complete your signup process:\n\n {
-                        verification_code} \n\nThis code will expire in 10 minutes.\n\nRegards,\nRaMed Team',
-                    settings.DEFAULT_FROM_EMAIL,
-                    [email],
-                    fail_silently=False,
-                )
+            subject = 'Verification Code'
+            message = (
+                f"Hi Dr. {f_name} {l_name},\n\n"
+                f"Use the following code to verify your email address to complete your signup process:\n\n"
+                f"{verification_code}\n\n"
+                f"This code will expire in 10 minutes.\n\n"
+                f"Regards,\nSkinWise Team"
+            ) if user_type == "Doctor" else (
+                f"Hi {f_name} {l_name},\n\n"
+                f"Use the following code to verify your email address to complete your signup process:\n\n"
+                f"{verification_code}\n\n"
+                f"This code will expire in 10 minutes.\n\n"
+                f"Regards,\nSkinWise Team"
+            )
+
+            send_mail(subject, message, settings.DEFAULT_FROM_EMAIL,
+                      [email], fail_silently=False)
             return HttpResponse("User registered successfully. Please check your email for the verification code.")
         except Exception as e:
             temp_user.delete()
@@ -84,14 +102,12 @@ def signup(request):
 @csrf_exempt
 def verify_email(request):
     if request.method == "POST":
-        email = request.POST.get("email")
+        email = request.POST.get("email").lower()
         code = request.POST.get("verification_code")
         expiry_time = timezone.timedelta(minutes=10)
-
-        temp_user = TempUser.objects.get(
-            email=email, verification_code=code)
-
         try:
+            temp_user = TempUser.objects.get(
+                email=email, verification_code=code)
             if timezone.now() - temp_user.code_created_at < expiry_time:
                 user = User(
                     f_name=temp_user.f_name,
@@ -124,7 +140,7 @@ def verify_email(request):
 @csrf_exempt
 def login(request):
     if request.method == "POST":
-        username_email = request.POST.get("username_email")
+        username_email = request.POST.get("username_email").lower()
         password = request.POST.get("password")
 
         user = User.objects.filter(username=username_email).first(
@@ -151,7 +167,7 @@ def password_reset(request):
 
         if stage == "request_reset":
             # Handle password reset request (Stage 1)
-            username_email = request.POST.get("username_email")
+            username_email = request.POST.get("username_email").lower()
             user = User.objects.filter(email=username_email).first(
             ) or User.objects.filter(username=username_email).first()
 
@@ -166,21 +182,27 @@ def password_reset(request):
 
                 # Send the email with the verification code
                 try:
-                    send_mail(
-                        'Password Reset Verification Code',
-                        f'Hi {user.f_name} {user.l_name},\n\nUse the following code to reset your password:\n\n{
-                            verification_code}\n\nThis code will expire in 10 minutes.\n\nRegards,\nYour Team',
-                        settings.DEFAULT_FROM_EMAIL,
-                        [user.email],
-                        fail_silently=False,
+                    subject = 'Verification Code'
+                    message = (
+                        f"Hi Dr. {user.f_name} {user.l_name},\n\n"
+                        f"Use the following code to verify your email address to reset your password:\n\n"
+                        f"{verification_code}\n\n"
+                        f"This code will expire in 10 minutes.\n\n"
+                        f"Regards,\nSkinWise Team"
+                    ) if user.user_type == "Doctor" else (
+                        f"Hi {user.f_name} {user.l_name},\n\n"
+                        f"Use the following code to verify your email address to reset your password:\n\n"
+                        f"{verification_code}\n\n"
+                        f"This code will expire in 10 minutes.\n\n"
+                        f"Regards,\nSkinWise Team"
                     )
-                    # Set context for stage 2 and continue
-                    context['stage'] = "verify_and_reset"
+                    send_mail(subject, message, settings.DEFAULT_FROM_EMAIL,
+                              [user.email], fail_silently=False)
                     context['email'] = user.email
+                    context['stage'] = "verify_and_reset"
                     response_message = "Verification code sent. Please check your email."
                 except Exception as e:
                     response_message = "Failed to send email. Please try again later."
-
         elif stage == "verify_and_reset":
             # Handle password reset verification (Stage 2)
             username_email = request.POST.get("username_email")
