@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ user.f_name }} {{ user.l_name }}'s Profile</title>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>{{ user.f_name }} {{ user.l_name }}'s Profile</h1>
+        </header>
+        <main>
+            <section>
+                <h2>Basic Information</h2>
+                <ul>
+                    <li><strong>Username:</strong> {{ user.username }}</li>
+                    <li><strong>Email:</strong> {{ user.email }}</li>
+                    <li><strong>Date of Birth:</strong> {{ user.date_of_birth }}</li>
+                    <li><strong>Gender:</strong> {{ user.gender }}</li>
+                    <li><strong>Account Type:</strong> {{ user.user_type }}</li>
+                </ul>
+            </section>
+
+            {% if user.user_type == "Doctor" %}
+            <section>
+                <h2>Professional Information</h2>
+                <ul>
+                    <li><strong>Specialization:</strong> {{ user.specialization }}</li>
+                    <li><strong>Clinic Details:</strong> {{ user.clinic_details }}</li>
+                    <li><strong>Additional Info:</strong> {{ user.info }}</li>
+                </ul>
+            </section>
+            {% endif %}
+
+            <section>
+                <h2>Status</h2>
+                <ul>
+                    <li><strong>Email Verified:</strong> {{ user.is_verified|yesno:"Yes,No" }}</li>
+                </ul>
+            </section>
+        </main>
+        <footer>
+            <p>&copy; 2024 SkinWise Team</p>
+        </footer>
+    </div>
+</body>
+</html>

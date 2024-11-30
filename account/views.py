@@ -218,3 +218,14 @@ def reset_password(request):
         except User.DoesNotExist:
             return HttpResponse("Invalid reset code or email.")
     return render(request, "account/reset_password.html")
+
+
+def view_profile(request, username):
+    if  request.method == "GET":
+        username = username.lower()
+        user = User.objects.filter(username=username).first()
+        if user:
+            return render(request, "account/view_profile.html", {"user": user})
+        else:
+            return HttpResponse("User not found.")
+    return HttpResponse("Invalid request method.")
