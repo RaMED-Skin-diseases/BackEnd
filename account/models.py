@@ -61,37 +61,3 @@ class User(models.Model):
     class Meta:
         verbose_name = "User Account"
         verbose_name_plural = "User Accounts"
-
-
-class TempUser(models.Model):
-    f_name = models.CharField(
-        max_length=100, blank=False, null=False, validators=[name_validator])
-    l_name = models.CharField(
-        max_length=100, blank=False, null=False, validators=[name_validator])
-    date_of_birth = models.DateField(null=False, blank=False)
-    email = models.EmailField(unique=True, blank=False, null=False)
-    gender = models.CharField(
-        max_length=6, choices=GENDER_CHOICES, blank=False, null=False)
-    password = models.CharField(
-        max_length=20, blank=False, null=False, validators=[MinLengthValidator(8)])
-    username = models.CharField(
-        max_length=20, unique=True, blank=False, null=False, validators=[username_validator, MinLengthValidator(3)])
-
-    user_type = models.CharField(
-        max_length=7, choices=USER_TYPE_CHOICES, blank=False, null=False)
-
-    info = models.TextField(blank=True, null=True)
-    specialization = models.CharField(max_length=100, null=True)
-    clinic_details = models.TextField(blank=True, null=True)
-
-    verification_code = models.CharField(max_length=6, blank=True, null=True)
-    code_created_at = models.DateTimeField(
-        auto_now_add=True, blank=True, null=True)
-    is_verified = models.BooleanField(default=False)
-
-    def save(self, *args, **kwargs):
-        if self.email:
-            self.email = self.email.lower()
-        if self.username:
-            self.username = self.username.lower()
-        super(TempUser, self).save(*args, **kwargs)

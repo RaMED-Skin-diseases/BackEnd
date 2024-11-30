@@ -1,13 +1,14 @@
 from django.utils import timezone
 import string
+from django.utils.text import slugify
 from django.shortcuts import render, redirect
 from django.http import HttpResponse
-from .models import User, TempUser
+from .models import User
 from django.views.decorators.csrf import csrf_exempt
 from django.core.mail import send_mail
 from django.conf import settings
 import random
-from datetime import datetime, timedelta
+from datetime import timedelta
 from django.core.exceptions import ValidationError
 from django.core.validators import MinLengthValidator, RegexValidator
 
@@ -17,6 +18,25 @@ from django.core.validators import MinLengthValidator, RegexValidator
 def generate_verification_code(length=6):
     """Generate a random verification code of given length."""
     return ''.join(random.choices(string.digits, k=length))
+
+
+def email_code(user):
+    subject = 'Verification Code'
+    message = (
+        f"Hi Dr. {user.f_name} {user.l_name},\n\n"
+        f"Use the following code to verify your email address:\n\n"
+        f"{user.verification_code}\n\n"
+        f"This code will expire in 10 minutes.\n\n"
+        f"Regards,\nSkinWise Team"
+    ) if user.user_type == "Doctor" else (
+        f"Hi {user.f_name} {user.l_name},\n\n"
+        f"Use the following code to verify your email address:\n\n"
+        f"{user.verification_code}\n\n"
+        f"This code will expire in 10 minutes.\n\n"
+        f"Regards,\nSkinWise Team"
+    )
+    send_mail(subject, message, settings.DEFAULT_FROM_EMAIL,
+              [user.email], fail_silently=False)
 
 
 @csrf_exempt
@@ -33,11 +53,10 @@ def signup(request):
         info = request.POST.get("info")
         specialization = request.POST.get("specialization")
         clinic_details = request.POST.get("clinic_details")
-        verification_code = generate_verification_code()
 
-        if User.objects.filter(email=email).exists() or TempUser.objects.filter(email=email).exists():
+        if User.objects.filter(email=email).exists():
             return HttpResponse("Email already exists.")
-        if User.objects.filter(username=username).exists() or TempUser.objects.all().filter(username=username).exists():
+        if User.objects.filter(username=username).exists():
             return HttpResponse("Username already exits.")
         try:
             MinLengthValidator(8)(password)
@@ -57,7 +76,7 @@ def signup(request):
         except ValidationError:
             return HttpResponse("Last name must contain only letters.")
 
-        temp_user = TempUser(
+        user = User(
             f_name=f_name,
             l_name=l_name,
             date_of_birth=date_of_birth,
@@ -69,32 +88,15 @@ def signup(request):
             info=info,
             specialization=specialization,
             clinic_details=clinic_details,
-            verification_code=verification_code,
-            code_created_at=timezone.now(),
+            is_verified=False,
         )
-        temp_user.save()
+        user.save()
 
         try:
-            subject = 'Verification Code'
-            message = (
-                f"Hi Dr. {f_name} {l_name},\n\n"
-                f"Use the following code to verify your email address to complete your signup process:\n\n"
-                f"{verification_code}\n\n"
-                f"This code will expire in 10 minutes.\n\n"
-                f"Regards,\nSkinWise Team"
-            ) if user_type == "Doctor" else (
-                f"Hi {f_name} {l_name},\n\n"
-                f"Use the following code to verify your email address to complete your signup process:\n\n"
-                f"{verification_code}\n\n"
-                f"This code will expire in 10 minutes.\n\n"
-                f"Regards,\nSkinWise Team"
-            )
-
-            send_mail(subject, message, settings.DEFAULT_FROM_EMAIL,
-                      [email], fail_silently=False)
+            send_verification_code(user.username)
             return HttpResponse("User registered successfully. Please check your email for the verification code.")
         except Exception as e:
-            temp_user.delete()
+            user.delete()
             return HttpResponse("Failed to send email. Please try again later.")
     return render(request, "account/signup.html")
 
@@ -102,39 +104,50 @@ def signup(request):
 @csrf_exempt
 def verify_email(request):
     if request.method == "POST":
-        email = request.POST.get("email").lower()
+        email_username = request.POST.get("email").lower()
         code = request.POST.get("verification_code")
         expiry_time = timezone.timedelta(minutes=10)
         try:
-            temp_user = TempUser.objects.get(
-                email=email, verification_code=code)
-            if timezone.now() - temp_user.code_created_at < expiry_time:
-                user = User(
-                    f_name=temp_user.f_name,
-                    l_name=temp_user.l_name,
-                    date_of_birth=temp_user.date_of_birth,
-                    email=temp_user.email,
-                    gender=temp_user.gender,
-                    password=temp_user.password,
-                    username=temp_user.username,
-                    user_type=temp_user.user_type,
-                    info=temp_user.info,
-                    specialization=temp_user.specialization,
-                    clinic_details=temp_user.clinic_details,
-                    is_verified=True,
-                )
+            user = User.objects.get(
+                email=email_username, verification_code=code) or User.objects.get(
+                    username=email_username, verification_code=code)
+            if timezone.now() - user.code_created_at < expiry_time:
+                user.is_verified = True
+                user.verification_code = None
+                user.code_created_at = None
                 user.save()
-
-                temp_user.delete()
                 return HttpResponse("Email verified successfully. You are now registered.")
             else:
-                temp_user.delete()
                 return HttpResponse("Verification code has expired.")
-        except TempUser.DoesNotExist:
-            if timezone.now() - temp_user.code_created_at < expiry_time:
-                temp_user.delete()
-            return HttpResponse("Invalid verification code.")
+        except User.DoesNotExist:
+            return HttpResponse("User not found or invalid verification code.")
     return render(request, "account/verify_email.html")
+
+
+def resend_verification_code(request, username):
+    if request.method == "GET":
+        username = username.lower()
+        try:
+            send_verification_code(username)
+            return HttpResponse("Verification code sent. Please check your email.")
+        except Exception as e:
+            return HttpResponse(f"Error: {str(e)}", status=500)
+    return HttpResponse("Invalid request method.")
+
+
+def send_verification_code(username):
+    try:
+        user = User.objects.filter(username=username).first()
+        if not user:
+            return HttpResponse("User not found.", status=404)
+        verification_code = generate_verification_code()
+        user.verification_code = verification_code
+        user.code_created_at = timezone.now()
+        user.save()
+        email_code(user)
+        return HttpResponse("Verification code sent. Please check your email.")
+    except Exception as e:
+        return HttpResponse(f"Error: {str(e)}", status=500)
 
 
 @csrf_exempt
@@ -145,6 +158,9 @@ def login(request):
 
         user = User.objects.filter(username=username_email).first(
         ) or User.objects.filter(email=username_email).first()
+
+        if user is None:
+            return HttpResponse("User not found.")
 
         if user.is_verified:
             if user and user.password == password:
@@ -158,73 +174,47 @@ def login(request):
 
 
 @csrf_exempt
-def password_reset(request):
-    response_message = None  # Initialize a response message variable
-    context = {}  # Initialize context to pass to the template
-
+def forgot_password(request):
     if request.method == "POST":
-        stage = request.POST.get("stage")
+        username_email = request.POST.get("username_email").lower()
+        try:
+            user = User.objects.filter(email=username_email).first() or User.objects.filter(
+                username=username_email).first()
+            send_verification_code(user.username)
+            return HttpResponse("Password reset code sent. Please check your email.")
+        except User.DoesNotExist:
+            return HttpResponse("Email not found.")
+    return render(request, "account/forgot_password.html")
 
-        if stage == "request_reset":
-            # Handle password reset request (Stage 1)
-            username_email = request.POST.get("username_email").lower()
-            user = User.objects.filter(email=username_email).first(
-            ) or User.objects.filter(username=username_email).first()
 
-            if not user:
-                response_message = "Email not found."
-            else:
-                # Generate and save the verification code
-                verification_code = generate_verification_code()
-                user.verification_code = verification_code
-                user.code_created_at = timezone.now()
-                user.save()
+@csrf_exempt
+def reset_password(request):
+    if request.method == "POST":
+        username_email = request.POST.get("username_email").lower()
+        verification_code = request.POST.get("verification_code")
+        new_password = request.POST.get("new_password")
 
-                # Send the email with the verification code
+        try:
+            user = User.objects.filter(email=username_email, verification_code=verification_code).first() or User.objects.filter(
+                username=username_email, verification_code=verification_code).first()
+            expiry_time = timezone.timedelta(minutes=10)
+
+            # Check if the reset code is still valid
+            if timezone.now() - user.code_created_at < expiry_time:
+                # Validate the new password
                 try:
-                    subject = 'Verification Code'
-                    message = (
-                        f"Hi Dr. {user.f_name} {user.l_name},\n\n"
-                        f"Use the following code to verify your email address to reset your password:\n\n"
-                        f"{verification_code}\n\n"
-                        f"This code will expire in 10 minutes.\n\n"
-                        f"Regards,\nSkinWise Team"
-                    ) if user.user_type == "Doctor" else (
-                        f"Hi {user.f_name} {user.l_name},\n\n"
-                        f"Use the following code to verify your email address to reset your password:\n\n"
-                        f"{verification_code}\n\n"
-                        f"This code will expire in 10 minutes.\n\n"
-                        f"Regards,\nSkinWise Team"
-                    )
-                    send_mail(subject, message, settings.DEFAULT_FROM_EMAIL,
-                              [user.email], fail_silently=False)
-                    context['email'] = user.email
-                    context['stage'] = "verify_and_reset"
-                    response_message = "Verification code sent. Please check your email."
-                except Exception as e:
-                    response_message = "Failed to send email. Please try again later."
-        elif stage == "verify_and_reset":
-            # Handle password reset verification (Stage 2)
-            username_email = request.POST.get("username_email")
-            verification_code = request.POST.get("verification_code")
-            new_password = request.POST.get("new_password")
-            expiry_time = timedelta(minutes=10)
+                    MinLengthValidator(8)(new_password)
+                except ValidationError:
+                    return HttpResponse("Password must be at least 8 characters long.")
 
-            try:
-                user = User.objects.filter(email=username_email).first(
-                ) or User.objects.filter(username=username_email).first()
-                if timezone.now() - user.code_created_at < expiry_time:
-                    # Update the password
-                    user.password = new_password
-                    user.verification_code = None  # Clear the verification code
-                    user.code_created_at = None    # Clear the timestamp
-                    user.save()
-
-                    response_message = "Password reset successfully. You can now log in with your new password."
-                else:
-                    response_message = "Verification code has expired. Please request a new password reset."
-            except User.DoesNotExist:
-                response_message = "Invalid email or verification code."
-
-    context['message'] = response_message
-    return render(request, "account/password_reset.html", context)
+                # Save the new password and clear reset code
+                user.password = new_password
+                user.verification_code = None
+                user.code_created_at = None
+                user.save()
+                return HttpResponse("Password reset successful.")
+            else:
+                return HttpResponse("Reset code has expired.")
+        except User.DoesNotExist:
+            return HttpResponse("Invalid reset code or email.")
+    return render(request, "account/reset_password.html")
