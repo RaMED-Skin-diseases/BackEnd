@@ -1,6 +1,6 @@
 from django.db import models
-from django.utils import timezone
 from django.core.validators import MinLengthValidator, RegexValidator
+from django.contrib.auth.models import AbstractUser
 
 
 # Create your models here.
@@ -24,7 +24,7 @@ name_validator = RegexValidator(
     r'^[a-zA-Z]+$', 'name must contain only letters.')
 
 
-class User(models.Model):
+class User(AbstractUser):
     f_name = models.CharField(
         max_length=100, blank=False, null=False, validators=[name_validator])
     l_name = models.CharField(

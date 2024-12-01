@@ -9,6 +9,7 @@ urlpatterns = [
     path('forgot_password', views.forgot_password, name='forgot_password'),
     path('reset_password', views.reset_password, name='reset_password'),
     path('resend_verification_code/<slug:username>', views.resend_verification_code, name='resend_verification_code'),
+    re_path(r'^resend_verification_code/(?P<username>[\w.@+-]+)/$', views.resend_verification_code, name='resend_verification_code'),
     path('profile/<slug:username>', views.view_profile, name='profile'),
     re_path(r'^profile/(?P<username>[\w.@+-]+)/$', views.view_profile, name='profile'),
     # path('home', views.home, name='home'),

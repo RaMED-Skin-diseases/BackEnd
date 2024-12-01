@@ -9,6 +9,12 @@ from django.conf import settings
 import random
 from django.core.exceptions import ValidationError
 from django.core.validators import MinLengthValidator, RegexValidator
+from django.contrib.auth.hashers import make_password, check_password
+from django.contrib.auth import authenticate, login as auth_login
+from django.contrib.auth import logout as auth_logout
+from django.contrib.auth.decorators import login_required
+
+
 
 # Create your views here.
 
@@ -80,7 +86,7 @@ def signup(request):
             date_of_birth=date_of_birth,
             email=email,
             gender=gender,
-            password=password,
+            password=make_password(password),
             username=username,
             user_type=user_type,
             info=info,
@@ -125,6 +131,8 @@ def verify_email(request):
 def resend_verification_code(request, username):
     if request.method == "GET":
         username = username.lower()
+        if not User.objects.filter(username=username).exists():
+            return HttpResponse("User not found.", status=404)
         try:
             send_verification_code(username)
             return HttpResponse("Verification code sent. Please check your email.")
@@ -145,7 +153,8 @@ def send_verification_code(username):
         email_code(user)
         return HttpResponse("Verification code sent. Please check your email.")
     except Exception as e:
-        return HttpResponse(f"Error: {str(e)}", status=500)
+        return str(e)
+    
 
 
 @csrf_exempt
@@ -161,11 +170,8 @@ def login(request):
             return HttpResponse("User not found.")
 
         if user.is_verified:
-            if user and user.password == password:
-                request.session['user_id'] = user.id
-                request.session['username'] = user.username
-                request.session['user_type'] = user.user_type
-                # return redirect('home')
+            if check_password(password, user.password):
+                auth_login(request, user)
                 return HttpResponse("Login successful.")
             else:
                 return HttpResponse("Invalid credentials.")
@@ -179,6 +185,7 @@ def login(request):
 def forgot_password(request):
     if request.method == "POST":
         username_email = request.POST.get("username_email").lower()
+        print(username_email)
         try:
             user = User.objects.filter(email=username_email).first() or User.objects.filter(
                 username=username_email).first()
@@ -210,7 +217,7 @@ def reset_password(request):
                     return HttpResponse("Password must be at least 8 characters long.")
 
                 # Save the new password and clear reset code
-                user.password = new_password
+                user.password = make_password(new_password)
                 user.verification_code = None
                 user.code_created_at = None
                 user.save()
@@ -258,16 +265,15 @@ def view_profile(request, username):
 
 
 def logout(request):
-    request.session.flush()
+    auth_logout(request)
     return HttpResponse("Logged out successfully.")
 
 
 @csrf_exempt
+@login_required
 def edit_profile(request):
-    if 'user_id' not in request.session:
-        return redirect('login')
-    user_id = request.session['user_id']
-    user = User.objects.get(id=user_id)
+    
+    user = request.user
 
     if request.method == "POST":
         f_name = request.POST.get("f_name")
