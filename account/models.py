@@ -17,7 +17,7 @@ USER_TYPE_CHOICES = [
 ]
 
 username_validator = RegexValidator(
-    r'^(?=.*[a-zA-Z])[a-zA-Z0-9]*$',
+    r'^(?=.*[a-zA-Z])[a-zA-Z0-9._-]*$',
     'Username must contain at least one letter and can include numbers and special characters.'
 )
 

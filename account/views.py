@@ -62,9 +62,9 @@ def signup(request):
             return HttpResponse("Password must be at least 8 characters long.")
         try:
             MinLengthValidator(3) and RegexValidator(
-                r'^(?=.*[a-zA-Z])[a-zA-Z0-9]*$')(username)
+                RegexValidator(r'^(?=.*[a-zA-Z])[a-zA-Z0-9._-]*$'))(username)
         except ValidationError:
-            return HttpResponse("Username must be at least 8 characters long and include letters.")
+            return HttpResponse("Username must be at least 3 characters long and include letters.")
         try:
             RegexValidator(r'^[a-zA-Z]+$')(f_name)
         except ValidationError:
@@ -290,7 +290,7 @@ def edit_profile(request):
             return HttpResponse("Email already exists.")
         if User.objects.filter(username=username).exists() and user.username != username:
             return HttpResponse("Username already exits.")
-        
+
         old_email = user.email
 
         user.f_name = f_name
@@ -299,7 +299,7 @@ def edit_profile(request):
         user.gender = gender
         user.username = username
         user.email = email
-                
+
         # If user is a doctor, allow updating additional fields
         if user.user_type == "Doctor":
             info = request.POST.get("info")
@@ -311,7 +311,7 @@ def edit_profile(request):
 
         # Save the updated user
         user.save()
-        
+
         if old_email != email:
             user.is_verified = False
             user.verification_code = None
