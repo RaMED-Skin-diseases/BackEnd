@@ -1,5 +1,5 @@
 from . import views
-from django.urls import path
+from django.urls import path, re_path
 
 
 urlpatterns = [
@@ -10,6 +10,7 @@ urlpatterns = [
     path('reset_password', views.reset_password, name='reset_password'),
     path('resend_verification_code/<slug:username>', views.resend_verification_code, name='resend_verification_code'),
     path('profile/<slug:username>', views.view_profile, name='profile'),
+    re_path(r'^profile/(?P<username>[\w.@+-]+)/$', views.view_profile, name='profile'),
     # path('home', views.home, name='home'),
     path('logout', views.logout, name='logout'),
     path('edit_profile', views.edit_profile, name='edit_profile'),

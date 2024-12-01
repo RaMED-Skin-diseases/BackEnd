@@ -10,7 +10,6 @@ import random
 from django.core.exceptions import ValidationError
 from django.core.validators import MinLengthValidator, RegexValidator
 
-
 # Create your views here.
 
 def generate_verification_code(length=6):
@@ -61,8 +60,9 @@ def signup(request):
         except ValidationError:
             return HttpResponse("Password must be at least 8 characters long.")
         try:
-            MinLengthValidator(3) and RegexValidator(
-                RegexValidator(r'^(?=.*[a-zA-Z])[a-zA-Z0-9._-]*$'))(username)
+            MinLengthValidator(3)(username)
+            RegexValidator(r'^(?=.*[a-zA-Z])[a-zA-Z0-9._-]*$',
+                           message="Username must include at least one letter and can only contain '.', '_', or '-'")(username)
         except ValidationError:
             return HttpResponse("Username must be at least 3 characters long and include letters.")
         try:
@@ -226,10 +226,11 @@ def view_profile(request, username):
     if request.method == "GET":
         username = username.lower()
         user = User.objects.filter(username=username).first()
-        get_user_info = [user.f_name, user.l_name, user.date_of_birth, user.gender, user.username, user.email, user.user_type, user.info,
-                         user.specialization, user.clinic_details, user.is_verified]
-        comma_separated = ', '.join(map(str, get_user_info))
+        
         if user:
+            get_user_info = [user.f_name, user.l_name, user.date_of_birth, user.gender, user.username, user.email, user.user_type, user.is_verified, user.info,
+                         user.specialization, user.clinic_details]
+            comma_separated = ', '.join(map(str, get_user_info))
             return HttpResponse(comma_separated)
         else:
             return HttpResponse("User not found.")
