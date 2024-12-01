@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Edit Profile - SkinWise</title>
+</head>
+<body>
+    <h1>Edit Profile</h1>
+    <form method="POST" action="{% url 'edit_profile' %}">
+        {% csrf_token %}
+        <div>
+            <label>First Name:</label>
+            <input type="text" name="f_name" value="{{ user.f_name }}" required>
+        </div>
+        <div>
+            <label>Last Name:</label>
+            <input type="text" name="l_name" value="{{ user.l_name }}" required>
+        </div>
+        <div>
+            <label>Date of Birth:</label>
+            <input type="date" name="date_of_birth" value="{{ user.date_of_birth|date:'Y-m-d' }}" required>
+        </div>
+        <div>
+            <label>Gender:</label>
+            <select name="gender" required>
+                <option value="Male" {% if user.gender == 'Male' %}selected{% endif %}>Male</option>
+                <option value="Female" {% if user.gender == 'Female' %}selected{% endif %}>Female</option>
+            </select>
+        </div>
+        <div>
+            <label>Username:</label>
+            <textarea name="username">{{ user.username }}</textarea>
+        </div>
+        <div>
+            <label>email:</label>
+            <textarea name="email">{{ user.email }}</textarea>
+        </div>
+        
+        {% if user.user_type == 'Doctor' %}
+        <div>
+            <label>Specialization:</label>
+            <input type="text" name="specialization" value="{{ user.specialization }}">
+        </div>
+        <div>
+            <label>Clinic Details:</label>
+            <textarea name="clinic_details">{{ user.clinic_details }}</textarea>
+        </div>
+        {% endif %}
+        
+        <button type="submit">Update Profile</button>
+        <a href="{% url 'profile' username=user.username %}">Cancel</a>
+    </form>
+</body>
+</html>

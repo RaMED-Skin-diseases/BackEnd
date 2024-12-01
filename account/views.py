@@ -1,6 +1,5 @@
 from django.utils import timezone
 import string
-from django.utils.text import slugify
 from django.shortcuts import render, redirect
 from django.http import HttpResponse
 from .models import User
@@ -8,7 +7,6 @@ from django.views.decorators.csrf import csrf_exempt
 from django.core.mail import send_mail
 from django.conf import settings
 import random
-from datetime import timedelta
 from django.core.exceptions import ValidationError
 from django.core.validators import MinLengthValidator, RegexValidator
 
@@ -164,11 +162,15 @@ def login(request):
 
         if user.is_verified:
             if user and user.password == password:
+                request.session['user_id'] = user.id
+                request.session['username'] = user.username
+                request.session['user_type'] = user.user_type
+                # return redirect('home')
                 return HttpResponse("Login successful.")
             else:
                 return HttpResponse("Invalid credentials.")
         else:
-            return HttpResponse("Email not verified. Please verify your email to login.")
+            return redirect('verify_email')
 
     return render(request, "account/login.html")
 
@@ -221,11 +223,103 @@ def reset_password(request):
 
 
 def view_profile(request, username):
-    if  request.method == "GET":
+    if request.method == "GET":
         username = username.lower()
         user = User.objects.filter(username=username).first()
+        get_user_info = [user.f_name, user.l_name, user.date_of_birth, user.gender, user.username, user.email, user.user_type, user.info,
+                         user.specialization, user.clinic_details, user.is_verified]
+        comma_separated = ', '.join(map(str, get_user_info))
         if user:
-            return render(request, "account/view_profile.html", {"user": user})
+            return HttpResponse(comma_separated)
         else:
             return HttpResponse("User not found.")
     return HttpResponse("Invalid request method.")
+
+
+# def home(request):
+#     # Check if user is logged in
+#     if 'user_id' not in request.session:
+#         # If not logged in, redirect to login page
+#         return redirect('login')
+
+#     # Fetch user details from session
+#     user_id = request.session['user_id']
+#     user = User.objects.get(id=user_id)
+
+#     # Prepare context for the home page
+#     context = {
+#         'user': user,
+#         'user_type': user.user_type,
+#         'username': user.username
+#     }
+
+#     return render(request, "account/home.html", context)
+
+
+def logout(request):
+    request.session.flush()
+    return HttpResponse("Logged out successfully.")
+
+
+@csrf_exempt
+def edit_profile(request):
+    if 'user_id' not in request.session:
+        return redirect('login')
+    user_id = request.session['user_id']
+    user = User.objects.get(id=user_id)
+
+    if request.method == "POST":
+        f_name = request.POST.get("f_name")
+        l_name = request.POST.get("l_name")
+        date_of_birth = request.POST.get("date_of_birth")
+        gender = request.POST.get("gender")
+        email = request.POST.get("email")
+        username = request.POST.get("username")
+
+        try:
+            RegexValidator(r'^[a-zA-Z]+$')(f_name)
+        except ValidationError:
+            return HttpResponse("First name must contain only letters.")
+
+        try:
+            RegexValidator(r'^[a-zA-Z]+$')(l_name)
+        except ValidationError:
+            return HttpResponse("Last name must contain only letters.")
+
+        if User.objects.filter(email=email).exists() and user.email != email:
+            return HttpResponse("Email already exists.")
+        if User.objects.filter(username=username).exists() and user.username != username:
+            return HttpResponse("Username already exits.")
+        
+        old_email = user.email
+
+        user.f_name = f_name
+        user.l_name = l_name
+        user.date_of_birth = date_of_birth
+        user.gender = gender
+        user.username = username
+        user.email = email
+                
+        # If user is a doctor, allow updating additional fields
+        if user.user_type == "Doctor":
+            info = request.POST.get("info")
+            specialization = request.POST.get("specialization")
+            clinic_details = request.POST.get("clinic_details")
+            user.specialization = specialization
+            user.clinic_details = clinic_details
+            user.info = info
+
+        # Save the updated user
+        user.save()
+        
+        if old_email != email:
+            user.is_verified = False
+            user.verification_code = None
+            user.code_created_at = None
+            user.save()
+            send_verification_code(user.username)
+            return HttpResponse("Profile updated successfully. Please verify your email address.")
+
+        # Redirect to profile view or home
+        return redirect('profile', username=user.username)
+    return render(request, "account/edit_profile.html", {"user": user})
