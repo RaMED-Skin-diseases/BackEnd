@@ -1,9 +1,65 @@
 from django.db import models
 from django.core.validators import MinLengthValidator, RegexValidator
-from django.contrib.auth.models import AbstractUser
+from django.contrib.auth.models import AbstractUser, BaseUserManager, AbstractBaseUser, PermissionsMixin
 
 
 # Create your models here.
+class AdminUserManager(BaseUserManager):
+    def create_superuser(self, username, password=None, **extra_fields):
+        extra_fields.setdefault('is_staff', True)
+        extra_fields.setdefault('is_superuser', True)
+
+        if extra_fields.get('is_staff') is not True:
+            raise ValueError('Superuser must have is_staff=True.')
+        if extra_fields.get('is_superuser') is not True:
+            raise ValueError('Superuser must have is_superuser=True.')
+
+        return self.create_user(username, password, **extra_fields)
+
+    def create_user(self, username, password=None, **extra_fields):
+        if not username:
+            raise ValueError('The Username field must be set')
+
+        user = self.model(username=username, **extra_fields)
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+
+class AdminUser(AbstractBaseUser, PermissionsMixin):
+    username = models.CharField(max_length=50, unique=True)
+    is_staff = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+
+    # Add custom related names
+    groups = models.ManyToManyField(
+        'auth.Group',
+        verbose_name='admin groups',
+        blank=True,
+        help_text='The groups this admin belongs to.',
+        related_name='admin_user_set',
+        related_query_name='admin_user'
+    )
+    user_permissions = models.ManyToManyField(
+        'auth.Permission',
+        verbose_name='admin user permissions',
+        blank=True,
+        help_text='Specific permissions for this admin user.',
+        related_name='admin_user_set',
+        related_query_name='admin_user'
+    )
+
+    objects = AdminUserManager()
+
+    USERNAME_FIELD = 'username'
+    REQUIRED_FIELDS = []
+
+    def __str__(self):
+        return self.username
+
+    class Meta:
+        verbose_name = 'Admin User'
+        verbose_name_plural = 'Admin Users'
 
 
 GENDER_CHOICES = [
@@ -25,6 +81,22 @@ name_validator = RegexValidator(
 
 
 class User(AbstractUser):
+    groups = models.ManyToManyField(
+        'auth.Group',
+        verbose_name='user groups',
+        blank=True,
+        help_text='The groups this user belongs to.',
+        related_name='custom_user_set',
+        related_query_name='custom_user'
+    )
+    user_permissions = models.ManyToManyField(
+        'auth.Permission',
+        verbose_name='user permissions',
+        blank=True,
+        help_text='Specific permissions for this user.',
+        related_name='custom_user_set',
+        related_query_name='custom_user'
+    )
     f_name = models.CharField(
         max_length=100, blank=False, null=False, validators=[name_validator])
     l_name = models.CharField(

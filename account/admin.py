@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import User
+from .models import User, AdminUser
 
 
 # Register your models here.
@@ -24,3 +24,19 @@ class UserAdmin(admin.ModelAdmin):
 
 admin.site.register(User, UserAdmin)
 admin.site.site_header = "Skin Diseases Admin"
+
+class CustomUserAdmin(UserAdmin):
+    model = AdminUser
+    list_display = ['username', 'is_staff', 'is_active']
+    fieldsets = (
+        (None, {'fields': ('username', 'password')}),
+        ('Permissions', {'fields': ('is_staff', 'is_active')}),
+    )
+    add_fieldsets = (
+        (None, {
+            'classes': ('wide',),
+            'fields': ('username', 'password1', 'password2', 'is_staff', 'is_active')}
+        ),
+    )
+
+admin.site.register(AdminUser, CustomUserAdmin)
