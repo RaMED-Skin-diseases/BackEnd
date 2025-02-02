@@ -13,7 +13,7 @@ from django.contrib.auth.hashers import make_password, check_password
 from django.contrib.auth import authenticate, login as auth_login
 from django.contrib.auth import logout as auth_logout
 from django.contrib.auth.decorators import login_required
-
+from django.http import JsonResponse
 
 
 # Create your views here.
@@ -58,27 +58,27 @@ def signup(request):
         clinic_details = request.POST.get("clinic_details")
 
         if User.objects.filter(email=email).exists():
-            return HttpResponse("Email already exists.")
+            return JsonResponse({'error': 'Email already exists'}, status=400)
         if User.objects.filter(username=username).exists():
-            return HttpResponse("Username already exits.")
+            return JsonResponse({'error': 'Username already exists'}, status=400)
         try:
             MinLengthValidator(8)(password)
         except ValidationError:
-            return HttpResponse("Password must be at least 8 characters long.")
+            return JsonResponse({'error': 'Password must be at least 8 characters long.'}, status=400)
         try:
             MinLengthValidator(3)(username)
             RegexValidator(r'^(?=.*[a-zA-Z])[a-zA-Z0-9._-]*$',
                            message="Username must include at least one letter and can only contain '.', '_', or '-'")(username)
         except ValidationError:
-            return HttpResponse("Username must be at least 3 characters long and include letters.")
+            return JsonResponse({'error': 'Username must be at least 3 characters long and include letters.'}, status=400)
         try:
             RegexValidator(r'^[a-zA-Z]+$')(f_name)
         except ValidationError:
-            return HttpResponse("First name must contain only letters.")
+            return JsonResponse({'error': 'First name must contain only letters.'}, status=400)
         try:
             RegexValidator(r'^[a-zA-Z]+$')(l_name)
         except ValidationError:
-            return HttpResponse("Last name must contain only letters.")
+            return JsonResponse({'error': 'Last name must contain only letters.'}, status=400)
 
         user = User(
             f_name=f_name,
@@ -98,10 +98,10 @@ def signup(request):
 
         try:
             send_verification_code(user.username)
-            return HttpResponse("User registered successfully. Please check your email for the verification code.")
+            return JsonResponse({'message': 'User registered successfully. Please check your email for the verification code.'}, status=200)
         except Exception as e:
             user.delete()
-            return HttpResponse("Failed to send email. Please try again later.")
+            return JsonResponse({'error': 'Failed to send email. Please try again later.'}, status=400)
     return render(request, "account/signup.html")
 
 
@@ -112,19 +112,19 @@ def verify_email(request):
         code = request.POST.get("verification_code")
         expiry_time = timezone.timedelta(minutes=10)
         try:
-            user = User.objects.get(
-                email=email_username, verification_code=code) or User.objects.get(
-                    username=email_username, verification_code=code)
-            if timezone.now() - user.code_created_at < expiry_time:
+            user = User.objects.filter(email=email_username, verification_code=code).first() or \
+                User.objects.filter(username=email_username,
+                                    verification_code=code).first()
+            if user.code_created_at and timezone.now() - user.code_created_at < expiry_time:
                 user.is_verified = True
                 user.verification_code = None
                 user.code_created_at = None
                 user.save()
-                return HttpResponse("Email verified successfully. You are now registered.")
+                return JsonResponse({'message': 'Email verified successfully.'}, status=200)
             else:
-                return HttpResponse("Verification code has expired.")
+                return JsonResponse({'error': 'Invalid verification code or code has expired.'}, status=400)
         except User.DoesNotExist:
-            return HttpResponse("User not found or invalid verification code.")
+            return JsonResponse({'error': 'Invalid verification code or email.'}, status=400)
     return render(request, "account/verify_email.html")
 
 
@@ -132,29 +132,28 @@ def resend_verification_code(request, username):
     if request.method == "GET":
         username = username.lower()
         if not User.objects.filter(username=username).exists():
-            return HttpResponse("User not found.", status=404)
+            return JsonResponse({'error': 'User not found.'}, status=404)
         try:
             send_verification_code(username)
-            return HttpResponse("Verification code sent. Please check your email.")
+            return JsonResponse({'message': 'Verification code sent. Please check your email.'}, status=200)
         except Exception as e:
-            return HttpResponse(f"Error: {str(e)}", status=500)
-    return HttpResponse("Invalid request method.")
+            return JsonResponse({'error': 'Failed to send email. Please try again later.'}, status=400)
+    return JsonResponse({'error': 'Invalid request method.'}, status=405)
 
 
 def send_verification_code(username):
     try:
         user = User.objects.filter(username=username).first()
         if not user:
-            return HttpResponse("User not found.", status=404)
+            return JsonResponse({'error': 'User not found.'}, status=404)
         verification_code = generate_verification_code()
         user.verification_code = verification_code
         user.code_created_at = timezone.now()
         user.save()
         email_code(user)
-        return HttpResponse("Verification code sent. Please check your email.")
+        return JsonResponse({'message': 'Verification code sent. Please check your email.'}, status=200)
     except Exception as e:
         return str(e)
-    
 
 
 @csrf_exempt
@@ -167,14 +166,14 @@ def login(request):
         ) or User.objects.filter(email=username_email).first()
 
         if user is None:
-            return HttpResponse("User not found.")
+            return JsonResponse({'error': 'Invalid username or email.'}, status=400)
 
         if user.is_verified:
             if check_password(password, user.password):
                 auth_login(request, user)
-                return HttpResponse("Login successful.")
+                return JsonResponse({'message': 'Logged in successfully.'}, status=200)
             else:
-                return HttpResponse("Invalid credentials.")
+                return JsonResponse({'error': 'Invalid password.'}, status=400)
         else:
             return redirect('verify_email')
 
@@ -190,9 +189,9 @@ def forgot_password(request):
             user = User.objects.filter(email=username_email).first() or User.objects.filter(
                 username=username_email).first()
             send_verification_code(user.username)
-            return HttpResponse("Password reset code sent. Please check your email.")
+            return JsonResponse({'message': 'Verification code sent. Please check your email.'}, status=200)
         except User.DoesNotExist:
-            return HttpResponse("Email not found.")
+            return JsonResponse({'error': 'Invalid email or username.'}, status=400)
     return render(request, "account/forgot_password.html")
 
 
@@ -204,28 +203,29 @@ def reset_password(request):
         new_password = request.POST.get("new_password")
 
         try:
-            user = User.objects.filter(email=username_email, verification_code=verification_code).first() or User.objects.filter(
-                username=username_email, verification_code=verification_code).first()
+            user = User.objects.filter(email=username_email, verification_code=verification_code).first() or \
+                User.objects.filter(username=username_email,
+                                    verification_code=verification_code).first()
             expiry_time = timezone.timedelta(minutes=10)
 
             # Check if the reset code is still valid
-            if timezone.now() - user.code_created_at < expiry_time:
+            if user.code_created_at and timezone.now() - user.code_created_at < expiry_time:
                 # Validate the new password
                 try:
                     MinLengthValidator(8)(new_password)
                 except ValidationError:
-                    return HttpResponse("Password must be at least 8 characters long.")
+                    return JsonResponse({'error': 'Password must be at least 8 characters long.'}, status=400)
 
                 # Save the new password and clear reset code
                 user.password = make_password(new_password)
                 user.verification_code = None
                 user.code_created_at = None
                 user.save()
-                return HttpResponse("Password reset successful.")
+                return JsonResponse({'message': 'Password reset successfully.'}, status=200)
             else:
-                return HttpResponse("Reset code has expired.")
+                return JsonResponse({'error': 'Invalid reset code or code has expired.'}, status=400)
         except User.DoesNotExist:
-            return HttpResponse("Invalid reset code or email.")
+            return JsonResponse({'error': 'Invalid reset code or email.'}, status=400)
     return render(request, "account/reset_password.html")
 
 
@@ -233,15 +233,15 @@ def view_profile(request, username):
     if request.method == "GET":
         username = username.lower()
         user = User.objects.filter(username=username).first()
-        
+
         if user:
             get_user_info = [user.f_name, user.l_name, user.date_of_birth, user.gender, user.username, user.email, user.user_type, user.is_verified, user.info,
-                         user.specialization, user.clinic_details]
+                             user.specialization, user.clinic_details]
             comma_separated = ', '.join(map(str, get_user_info))
-            return HttpResponse(comma_separated)
+            return JsonResponse({'user': comma_separated}, status=200)
         else:
-            return HttpResponse("User not found.")
-    return HttpResponse("Invalid request method.")
+            return JsonResponse({'error': 'User not found.'}, status=404)
+    return JsonResponse({'error': 'Invalid request method.'}, status=405)
 
 
 # def home(request):
@@ -266,13 +266,13 @@ def view_profile(request, username):
 
 def logout(request):
     auth_logout(request)
-    return HttpResponse("Logged out successfully.")
+    return JsonResponse({'message': 'Logged out successfully.'}, status=200)
 
 
 @csrf_exempt
 @login_required
 def edit_profile(request):
-    
+
     user = request.user
 
     if request.method == "POST":
@@ -286,17 +286,17 @@ def edit_profile(request):
         try:
             RegexValidator(r'^[a-zA-Z]+$')(f_name)
         except ValidationError:
-            return HttpResponse("First name must contain only letters.")
+            return JsonResponse({'error': 'First name must contain only letters.'}, status=400)
 
         try:
             RegexValidator(r'^[a-zA-Z]+$')(l_name)
         except ValidationError:
-            return HttpResponse("Last name must contain only letters.")
+            return JsonResponse({'error': 'Last name must contain only letters.'}, status=400)
 
         if User.objects.filter(email=email).exists() and user.email != email:
-            return HttpResponse("Email already exists.")
+            return JsonResponse({'error': 'Email already exits'}, status=400)
         if User.objects.filter(username=username).exists() and user.username != username:
-            return HttpResponse("Username already exits.")
+            return JsonResponse({'error': 'Username already exits'}, status=400)
 
         old_email = user.email
 
@@ -325,7 +325,7 @@ def edit_profile(request):
             user.code_created_at = None
             user.save()
             send_verification_code(user.username)
-            return HttpResponse("Profile updated successfully. Please verify your email address.")
+            return JsonResponse({'message': 'Verification code sent successfully.'}, status=200)
 
         # Redirect to profile view or home
         return redirect('profile', username=user.username)
