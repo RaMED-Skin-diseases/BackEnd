@@ -1,8 +1,8 @@
 from django.utils import timezone
 import string
-from django.shortcuts import render, redirect
+from django.shortcuts import render, redirect, get_object_or_404
 from django.http import HttpResponse
-from .models import User
+from .models import User, CommunityPost, Comment
 from django.views.decorators.csrf import csrf_exempt
 from django.core.mail import send_mail
 from django.conf import settings
@@ -14,6 +14,7 @@ from django.contrib.auth import authenticate, login as auth_login
 from django.contrib.auth import logout as auth_logout
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
+from .forms import CommunityPostForm, CommentForm
 
 
 # Create your views here.
@@ -330,3 +331,41 @@ def edit_profile(request):
         # Redirect to profile view or home
         return redirect('profile', username=user.username)
     return render(request, "account/edit_profile.html", {"user": user})
+
+
+@login_required
+def create_post(request):
+    if request.method == 'POST':
+        form = CommunityPostForm(request.POST, request.FILES)
+        if form.is_valid():
+            post = form.save(commit=False)
+            post.author = request.user
+            post.save()
+            return redirect('community_forum')
+    else:
+        form = CommunityPostForm()
+    return render(request, 'account/create_post.html', {'form': form})
+
+
+@login_required
+def community_forum(request):
+    posts = CommunityPost.objects.all().order_by('-created_at')
+    return render(request, 'account/community_forum.html', {'posts': posts})
+
+@login_required
+def post_detail(request, post_id):
+    post = get_object_or_404(CommunityPost, id=post_id)
+    comments = post.comments.all().order_by('-created_at')
+
+    if request.method == 'POST':
+        form = CommentForm(request.POST)
+        if form.is_valid():
+            comment = form.save(commit=False)
+            comment.post = post
+            comment.author = request.user
+            comment.save()
+            return redirect('post_detail', post_id=post.id)
+    else:
+        form = CommentForm()
+
+    return render(request, 'account/post_detail.html', {'post': post, 'comments': comments, 'form': form})

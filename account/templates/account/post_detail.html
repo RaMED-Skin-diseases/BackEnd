@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<h1>{{ post.title }}</h1>
+<p>{{ post.content }}</p>
+{% if post.image %}
+<img src="{{ post.image.url }}" alt="{{ post.title }}">
+{% endif %}
+<p>Posted by {{ post.author.username }} on {{ post.created_at }}</p>
+
+<h2>Comments</h2>
+<ul>
+    {% for comment in comments %}
+    <li>
+        <p>{{ comment.content }}</p>
+        <p>Commented by {{ comment.author.username }} on {{ comment.created_at }}</p>
+    </li>
+    {% endfor %}
+</ul>
+
+{% if request.user.user_type == 'Doctor' %}
+<h3>Add a Comment</h3>
+<form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit">Submit</button>
+</form>
+{% else %}
+<p>Only doctors can comment on this post.</p>
+{% endif %}
+{% endblock %}

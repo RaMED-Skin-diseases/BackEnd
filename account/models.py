@@ -5,8 +5,6 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 
-
-
 # Create your models here.
 # class AdminUserManager(BaseUserManager):
 #     def create_superuser(self, username, password=None, **extra_fields):
@@ -32,7 +30,8 @@ class AdminUserManager(BaseUserManager):
     def create_superuser(self, username, email, password=None, **extra_fields):
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
-        extra_fields.setdefault('date_of_birth', timezone.now().date())  # Default date
+        extra_fields.setdefault(
+            'date_of_birth', timezone.now().date())  # Default date
 
         if extra_fields.get('is_staff') is not True:
             raise ValueError('Superuser must have is_staff=True.')
@@ -47,10 +46,11 @@ class AdminUserManager(BaseUserManager):
         user.set_password(password)
         user.save(using=self._db)
         return user
+
     def create_user(self, username, email, password=None, **extra_fields):
         if not username:
             raise ValueError('The Username field must be set')
-        
+
         extra_fields.setdefault('date_of_birth', timezone.now().date())
         user = self.model(
             username=username,
@@ -175,24 +175,28 @@ class User(AbstractUser):
         verbose_name = "User Account"
         verbose_name_plural = "User Accounts"
 
+
 class AdminUser(User):
     class Meta:
         proxy = True
-        
+
     def save(self, *args, **kwargs):
         if not self.pk:  # Only for new instances
             self.is_staff = True
             self.is_superuser = True
         super().save(*args, **kwargs)
-        
-        
+
+
 class Command(BaseCommand):
     help = 'Creates a superuser with the specified credentials'
 
     def add_arguments(self, parser):
-        parser.add_argument('--username', type=str, help='Username for the superuser')
-        parser.add_argument('--email', type=str, help='Email for the superuser')
-        parser.add_argument('--password', type=str, help='Password for the superuser')
+        parser.add_argument('--username', type=str,
+                            help='Username for the superuser')
+        parser.add_argument('--email', type=str,
+                            help='Email for the superuser')
+        parser.add_argument('--password', type=str,
+                            help='Password for the superuser')
 
     def handle(self, *args, **options):
         username = options.get('username')
@@ -211,6 +215,49 @@ class Command(BaseCommand):
                 email=email,
                 password=password
             )
-            self.stdout.write(self.style.SUCCESS(f'Superuser {username} created successfully'))
+            self.stdout.write(self.style.SUCCESS(
+                f'Superuser {username} created successfully'))
         except Exception as e:
-            self.stdout.write(self.style.ERROR(f'Error creating superuser: {str(e)}'))
+            self.stdout.write(self.style.ERROR(
+                f'Error creating superuser: {str(e)}'))
+
+
+class CommunityPost(models.Model):
+    author = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='community_posts')
+    title = models.CharField(max_length=200, blank=False, null=False)
+    content = models.TextField(blank=False, null=False)
+    image = models.ImageField(
+        upload_to='community_images/', blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.title
+
+    class Meta:
+        verbose_name = "Community Post"
+        verbose_name_plural = "Community Posts"
+
+
+class Comment(models.Model):
+    post = models.ForeignKey(
+        CommunityPost, on_delete=models.CASCADE, related_name='comments')
+    author = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='comments')
+    content = models.TextField(blank=False, null=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Comment by {self.author.username} on {self.post.title}"
+
+    def save(self, *args, **kwargs):
+        # Ensure only doctors can comment
+        if self.author.user_type != 'Doctor':
+            raise ValueError("Only doctors are allowed to comment.")
+        super().save(*args, **kwargs)
+
+    class Meta:
+        verbose_name = "Comment"
+        verbose_name_plural = "Comments"

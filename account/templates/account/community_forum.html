@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<h1>Community Forum</h1>
+
+{% if request.user.user_type == 'Patient' %}
+<a href="{% url 'create_post' %}">Create a New Post</a>
+{% endif %}
+
+<ul>
+    {% for post in posts %}
+    <li>
+        <a href="{% url 'post_detail' post.id %}">{{ post.title }}</a>
+        <p>Posted by {{ post.author.username }} on {{ post.created_at }}</p>
+    </li>
+    {% endfor %}
+</ul>
+{% endblock %}
