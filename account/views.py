@@ -15,6 +15,8 @@ from django.contrib.auth import logout as auth_logout
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from .forms import CommunityPostForm, CommentForm
+from django.core.serializers import serialize
+
 
 
 # Create your views here.
@@ -332,7 +334,7 @@ def edit_profile(request):
         return redirect('profile', username=user.username)
     return render(request, "account/edit_profile.html", {"user": user})
 
-
+@csrf_exempt
 @login_required
 def create_post(request):
     if request.method == 'POST':
@@ -341,17 +343,34 @@ def create_post(request):
             post = form.save(commit=False)
             post.author = request.user
             post.save()
-            return redirect('community_forum')
+            return JsonResponse({
+                'status': 'success',
+                'message': 'Post created successfully.',
+                'post_id': post.id,
+            })
+        else:
+            return JsonResponse({
+                'status': 'error',
+                'message': 'Invalid form data.',
+                'errors': form.errors,
+            }, status=400)
     else:
-        form = CommunityPostForm()
-    return render(request, 'account/create_post.html', {'form': form})
+        return JsonResponse({
+            'status': 'error',
+            'message': 'Invalid request method.',
+        }, status=405)
 
 
 @login_required
 def community_forum(request):
     posts = CommunityPost.objects.all().order_by('-created_at')
-    return render(request, 'account/community_forum.html', {'posts': posts})
+    posts_data = serialize('json', posts, fields=('title', 'content', 'image', 'created_at', 'author'))
+    return JsonResponse({
+        'status': 'success',
+        'posts': posts_data,
+    }, safe=False)
 
+@csrf_exempt
 @login_required
 def post_detail(request, post_id):
     post = get_object_or_404(CommunityPost, id=post_id)
@@ -364,8 +383,39 @@ def post_detail(request, post_id):
             comment.post = post
             comment.author = request.user
             comment.save()
-            return redirect('post_detail', post_id=post.id)
-    else:
-        form = CommentForm()
+            return JsonResponse({
+                'status': 'success',
+                'message': 'Comment added successfully.',
+                'comment_id': comment.id,
+            })
+        else:
+            return JsonResponse({
+                'status': 'error',
+                'message': 'Invalid form data.',
+                'errors': form.errors,
+            }, status=400)
 
-    return render(request, 'account/post_detail.html', {'post': post, 'comments': comments, 'form': form})
+    post_data = {
+        'id': post.id,
+        'title': post.title,
+        'content': post.content,
+        'image': post.image.url if post.image else None,
+        'created_at': post.created_at,
+        'author': post.author.username,
+    }
+
+    comments_data = [
+        {
+            'id': comment.id,
+            'content': comment.content,
+            'created_at': comment.created_at,
+            'author': comment.author.username,
+        }
+        for comment in comments
+    ]
+
+    return JsonResponse({
+        'status': 'success',
+        'post': post_data,
+        'comments': comments_data,
+    })
