@@ -18,7 +18,6 @@ from .forms import CommunityPostForm, CommentForm
 from django.core.serializers import serialize
 
 
-
 # Create your views here.
 
 def generate_verification_code(length=6):
@@ -164,9 +163,10 @@ def login(request):
     if request.method == "POST":
         username_email = request.POST.get("username_email").lower()
         password = request.POST.get("password")
+        remember_me = request.POST.get("remember_me")  # Check if "Remember Me" is checked
 
-        user = User.objects.filter(username=username_email).first(
-        ) or User.objects.filter(email=username_email).first()
+        user = User.objects.filter(username=username_email).first() or \
+               User.objects.filter(email=username_email).first()
 
         if user is None:
             return JsonResponse({'error': 'Invalid username or email.'}, status=400)
@@ -174,6 +174,15 @@ def login(request):
         if user.is_verified:
             if check_password(password, user.password):
                 auth_login(request, user)
+
+                # Set session expiry based on "Remember Me"
+                if remember_me:
+                    # Set session to expire in 2 weeks (or any duration you prefer)
+                    request.session.set_expiry(1200000)  # 2 weeks in seconds
+                else:
+                    # Session expires when the browser is closed
+                    request.session.set_expiry(0)
+
                 return JsonResponse({'message': 'Logged in successfully.'}, status=200)
             else:
                 return JsonResponse({'error': 'Invalid password.'}, status=400)
@@ -181,7 +190,6 @@ def login(request):
             return redirect('verify_email')
 
     return render(request, "account/login.html")
-
 
 @csrf_exempt
 def forgot_password(request):
@@ -199,38 +207,55 @@ def forgot_password(request):
 
 
 @csrf_exempt
-def reset_password(request):
+def verify_reset_code(request):
     if request.method == "POST":
         username_email = request.POST.get("username_email").lower()
-        verification_code = request.POST.get("verification_code")
-        new_password = request.POST.get("new_password")
-
+        code = request.POST.get("verification_code")
+        expiry_time = timezone.timedelta(minutes=10)
         try:
-            user = User.objects.filter(email=username_email, verification_code=verification_code).first() or \
+            user = User.objects.filter(email=username_email, verification_code=code).first() or \
                 User.objects.filter(username=username_email,
-                                    verification_code=verification_code).first()
-            expiry_time = timezone.timedelta(minutes=10)
-
-            # Check if the reset code is still valid
+                                    verification_code=code).first()
             if user.code_created_at and timezone.now() - user.code_created_at < expiry_time:
-                # Validate the new password
-                try:
-                    MinLengthValidator(8)(new_password)
-                except ValidationError:
-                    return JsonResponse({'error': 'Password must be at least 8 characters long.'}, status=400)
-
-                # Save the new password and clear reset code
-                user.password = make_password(new_password)
-                user.verification_code = None
-                user.code_created_at = None
-                user.save()
-                return JsonResponse({'message': 'Password reset successfully.'}, status=200)
+                # Store the username/email in the session for the next step
+                request.session['reset_user'] = user.username
+                return JsonResponse({'message': 'Email verified successfully.'}, status=200)
             else:
-                return JsonResponse({'error': 'Invalid reset code or code has expired.'}, status=400)
+                return JsonResponse({'error': 'Invalid verification code or code has expired.'}, status=400)
         except User.DoesNotExist:
-            return JsonResponse({'error': 'Invalid reset code or email.'}, status=400)
-    return render(request, "account/reset_password.html")
+            return JsonResponse({'error': 'Invalid verification code or email.'}, status=400)
+    return render(request, "account/verify_reset_code.html")
 
+
+@csrf_exempt
+def reset_password(request):
+    if request.method == "POST":
+        new_password = request.POST.get("new_password")
+        username = request.session.get('reset_user')
+        if not username:
+            return JsonResponse({'error': 'Session expired or invalid request.'}, status=400)
+
+        user = User.objects.filter(username=username).first()
+        if not user:
+            return JsonResponse({'error': 'User not found.'}, status=404)
+
+        # Validate the new password
+        try:
+            MinLengthValidator(8)(new_password)
+        except ValidationError:
+            return JsonResponse({'error': 'Password must be at least 8 characters long.'}, status=400)
+
+        # Save the new password and clear reset code
+        user.password = make_password(new_password)
+        user.verification_code = None
+        user.code_created_at = None
+        user.save()
+
+        # Clear the session
+        del request.session['reset_user']
+
+        return JsonResponse({'message': 'Password reset successfully.'}, status=200)
+    return render(request, "account/reset_password.html")
 
 def view_profile(request, username):
     if request.method == "GET":
@@ -334,6 +359,7 @@ def edit_profile(request):
         return redirect('profile', username=user.username)
     return render(request, "account/edit_profile.html", {"user": user})
 
+
 @csrf_exempt
 @login_required
 def create_post(request):
@@ -364,11 +390,13 @@ def create_post(request):
 @login_required
 def community_forum(request):
     posts = CommunityPost.objects.all().order_by('-created_at')
-    posts_data = serialize('json', posts, fields=('title', 'content', 'image', 'created_at', 'author'))
+    posts_data = serialize('json', posts, fields=(
+        'title', 'content', 'image', 'created_at', 'author'))
     return JsonResponse({
         'status': 'success',
         'posts': posts_data,
     }, safe=False)
+
 
 @csrf_exempt
 @login_required
