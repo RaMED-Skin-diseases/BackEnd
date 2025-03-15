@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Skin Disease Detection Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 50px;
+        }
+        input, button {
+            margin: 10px;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Upload an Image for Skin Disease Detection</h2>
+    
+    <form id="uploadForm">
+        <input type="file" id="imageInput" accept="image/*" required>
+        <button type="submit">Upload & Predict</button>
+    </form>
+
+    <h3>Prediction Result:</h3>
+    <p id="result">Waiting for input...</p>
+
+    <script>
+        document.getElementById("uploadForm").addEventListener("submit", async function(event) {
+            event.preventDefault();
+
+            const imageFile = document.getElementById("imageInput").files[0];
+            if (!imageFile) {
+                alert("Please select an image first.");
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append("image", imageFile);
+
+            try {
+                const response = await fetch("/detect/predict/", {
+                    method: "POST",
+                    body: formData
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    document.getElementById("result").innerText = `Predicted Class: ${data.predicted_class}`;
+                } else {
+                    document.getElementById("result").innerText = `Error: ${data.error}`;
+                }
+            } catch (error) {
+                document.getElementById("result").innerText = `Error: ${error.message}`;
+            }
+        });
+    </script>
+
+</body>
+</html>
