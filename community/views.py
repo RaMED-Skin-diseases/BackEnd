@@ -6,6 +6,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.decorators import login_required
 from .models import CommunityPost
 from .forms import CommunityPostForm, CommentForm
+from django.db.models import Q
 
 
 # Create your views here.
@@ -39,14 +40,32 @@ def create_post(request):
 
 @login_required
 def community_forum(request):
-    posts = CommunityPost.objects.all().order_by('-created_at')
+    # Get query parameters for sorting and search
+    sort_by = request.GET.get('sort_by', '-created_at')  # Default sort by latest
+    search_query = request.GET.get('search', '')
+
+    # Base queryset
+    posts = CommunityPost.objects.all()
+
+    # Apply search filter
+    if search_query:
+        posts = posts.filter(
+            Q(title__icontains=search_query) |
+            Q(content__icontains=search_query) |
+            Q(author__username__icontains=search_query)
+        )
+
+    # Apply sorting
+    posts = posts.order_by(sort_by)
+
+    # Serialize the posts
     posts_data = serialize('json', posts, fields=(
         'title', 'content', 'image', 'created_at', 'author'))
+
     return JsonResponse({
         'status': 'success',
         'posts': posts_data,
     }, safe=False)
-
 
 @csrf_exempt
 @login_required
