@@ -16,7 +16,4 @@ urlpatterns = [
     # path('home', views.home, name='home'),
     path('logout', views.logout, name='logout'),
     path('edit_profile', views.edit_profile, name='edit_profile'),
-    path('community/', views.community_forum, name='community_forum'),
-    path('community/create/', views.create_post, name='create_post'),
-    path('community/post/<int:post_id>/', views.post_detail, name='post_detail'),
 ]

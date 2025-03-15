@@ -8,13 +8,13 @@ class UserAdmin(admin.ModelAdmin):
         if obj and obj.user_type == 'Doctor':
             return [
                 'f_name', 'l_name', 'date_of_birth', 'email', 'gender',
-                'password', 'username', 'user_type', 'info', 'specialization',
+                 'username', 'user_type', 'info', 'specialization',
                 'clinic_details', 'is_verified'
             ]
         # Fields for Patient users (doctor-specific fields hidden)
         return [
             'f_name', 'l_name', 'date_of_birth', 'email', 'gender',
-            'password', 'username', 'user_type', 'is_verified'
+             'username', 'user_type', 'is_verified'
         ]
 
     # List the fields to display in the admin list view
