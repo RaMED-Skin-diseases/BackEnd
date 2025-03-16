@@ -14,10 +14,13 @@ MODEL_PATH = os.path.join(os.path.dirname(__file__), "model/final_model.h5")
 model = tf.keras.models.load_model(MODEL_PATH)
 
 # Load ResNet50 feature extractor
-feature_extractor = ResNet50(weights="imagenet", include_top=False, pooling="avg")
+feature_extractor = ResNet50(
+    weights="imagenet", include_top=False, pooling="avg")
+
 
 def test_upload_page(request):
     return render(request, "detect/test_upload.html")
+
 
 def preprocess_image(image):
     """
@@ -32,6 +35,7 @@ def preprocess_image(image):
     features = feature_extractor.predict(image_array)
 
     return features  # Now matches model input shape (None, 2048)
+
 
 @csrf_exempt
 def predict_skin_disease(request, threshold=85):
