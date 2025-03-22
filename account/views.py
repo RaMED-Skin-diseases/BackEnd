@@ -15,13 +15,29 @@ from django.contrib.auth import logout as auth_logout
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.core.serializers import serialize
+from rest_framework_simplejwt.tokens import RefreshToken, OutstandingToken, BlacklistedToken
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
 
 
 # Create your views here.
+def blacklist_old_tokens(user):
+    tokens = OutstandingToken.objects.filter(user=user)
+    for token in tokens:
+        if not BlacklistedToken.objects.filter(token=token).exists():
+            BlacklistedToken.objects.create(token=token)
 
 def generate_verification_code(length=6):
     """Generate a random verification code of given length."""
     return ''.join(random.choices(string.digits, k=length))
+
+
+def get_tokens_for_user(user):
+    refresh = RefreshToken.for_user(user)
+    return {
+        'refresh': str(refresh),
+        'access': str(refresh.access_token),
+    }
 
 
 def email_code(user):
@@ -157,38 +173,33 @@ def send_verification_code(username):
         return str(e)
 
 
-@csrf_exempt
+@api_view(['POST'])
 def login(request):
     if request.method == "POST":
         username_email = request.POST.get("username_email").lower()
         password = request.POST.get("password")
-        remember_me = request.POST.get("remember_me")  # Check if "Remember Me" is checked
 
         user = User.objects.filter(username=username_email).first() or \
-               User.objects.filter(email=username_email).first()
+            User.objects.filter(email=username_email).first()
 
         if user is None:
             return JsonResponse({'error': 'Invalid username or email.'}, status=400)
 
         if user.is_verified:
             if check_password(password, user.password):
-                auth_login(request, user)
-
-                # Set session expiry based on "Remember Me"
-                if remember_me:
-                    # Set session to expire in 2 weeks (or any duration you prefer)
-                    request.session.set_expiry(1200000)  # 2 weeks in seconds
-                else:
-                    # Session expires when the browser is closed
-                    request.session.set_expiry(0)
-
-                return JsonResponse({'message': 'Logged in successfully.'}, status=200)
+                blacklist_old_tokens(user)
+                refresh = RefreshToken.for_user(user)
+                return JsonResponse({
+                    'refresh': str(refresh),
+                    'access': str(refresh.access_token),
+                }, status=200)
             else:
                 return JsonResponse({'error': 'Invalid password.'}, status=400)
         else:
             return redirect('verify_email')
 
     return render(request, "account/login.html")
+
 
 @csrf_exempt
 def forgot_password(request):
@@ -256,20 +267,19 @@ def reset_password(request):
         return JsonResponse({'message': 'Password reset successfully.'}, status=200)
     return render(request, "account/reset_password.html")
 
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def view_profile(request, username):
-    if request.method == "GET":
-        username = username.lower()
-        user = User.objects.filter(username=username).first()
+    user = User.objects.filter(username=username).first()
 
-        if user:
-            get_user_info = [user.f_name, user.l_name, user.date_of_birth, user.gender, user.username, user.email, user.user_type, user.is_verified, user.info,
-                             user.specialization, user.clinic_details]
-            comma_separated = ', '.join(map(str, get_user_info))
-            return JsonResponse({'user': comma_separated}, status=200)
-        else:
-            return JsonResponse({'error': 'User not found.'}, status=404)
-    return JsonResponse({'error': 'Invalid request method.'}, status=405)
-
+    if user:
+        get_user_info = [user.f_name, user.l_name, user.date_of_birth, user.gender, user.username, user.email, user.user_type, user.is_verified, user.info,
+                         user.specialization, user.clinic_details]
+        comma_separated = ', '.join(map(str, get_user_info))
+        return JsonResponse({'user': comma_separated}, status=200)
+    else:
+        return JsonResponse({'error': 'User not found.'}, status=404)
 
 # def home(request):
 #     # Check if user is logged in
@@ -296,66 +306,61 @@ def logout(request):
     return JsonResponse({'message': 'Logged out successfully.'}, status=200)
 
 
-@csrf_exempt
-@login_required
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def edit_profile(request):
 
     user = request.user
+    data = request.data
 
-    if request.method == "POST":
-        f_name = request.POST.get("f_name")
-        l_name = request.POST.get("l_name")
-        date_of_birth = request.POST.get("date_of_birth")
-        gender = request.POST.get("gender")
-        email = request.POST.get("email")
-        username = request.POST.get("username")
+    f_name = data.get("f_name")
+    l_name = data.get("l_name")
+    date_of_birth = data.get("date_of_birth")
+    gender = data.get("gender")
+    email = data.get("email")
+    username = data.get("username")
 
-        try:
-            RegexValidator(r'^[a-zA-Z]+$')(f_name)
-        except ValidationError:
-            return JsonResponse({'error': 'First name must contain only letters.'}, status=400)
+    try:
+        RegexValidator(r'^[a-zA-Z]+$')(f_name)
+    except ValidationError:
+        return JsonResponse({'error': 'First name must contain only letters.'}, status=400)
 
-        try:
-            RegexValidator(r'^[a-zA-Z]+$')(l_name)
-        except ValidationError:
-            return JsonResponse({'error': 'Last name must contain only letters.'}, status=400)
+    try:
+        RegexValidator(r'^[a-zA-Z]+$')(l_name)
+    except ValidationError:
+        return JsonResponse({'error': 'Last name must contain only letters.'}, status=400)
 
-        if User.objects.filter(email=email).exists() and user.email != email:
-            return JsonResponse({'error': 'Email already exits'}, status=400)
-        if User.objects.filter(username=username).exists() and user.username != username:
-            return JsonResponse({'error': 'Username already exits'}, status=400)
+    if User.objects.filter(email=email).exists() and user.email != email:
+        return JsonResponse({'error': 'Email already exists'}, status=400)
+    if User.objects.filter(username=username).exists() and user.username != username:
+        return JsonResponse({'error': 'Username already exists'}, status=400)
 
-        old_email = user.email
+    old_email = user.email
 
-        user.f_name = f_name
-        user.l_name = l_name
-        user.date_of_birth = date_of_birth
-        user.gender = gender
-        user.username = username
-        user.email = email
+    user.f_name = f_name
+    user.l_name = l_name
+    user.date_of_birth = date_of_birth
+    user.gender = gender
+    user.username = username
+    user.email = email
 
-        # If user is a doctor, allow updating additional fields
-        if user.user_type == "Doctor":
-            info = request.POST.get("info")
-            specialization = request.POST.get("specialization")
-            clinic_details = request.POST.get("clinic_details")
-            user.specialization = specialization
-            user.clinic_details = clinic_details
-            user.info = info
+    # If user is a doctor, allow updating additional fields
+    if user.user_type == "Doctor":
+        info = data.get("info")
+        specialization = data.get("specialization")
+        clinic_details = data.get("clinic_details")
+        user.specialization = specialization
+        user.clinic_details = clinic_details
+        user.info = info
 
-        # Save the updated user
+    user.save()
+
+    if old_email != email:
+        user.is_verified = False
+        user.verification_code = None
+        user.code_created_at = None
         user.save()
+        send_verification_code(user.username)
+        return JsonResponse({'message': 'Verification code sent successfully.'}, status=200)
 
-        if old_email != email:
-            user.is_verified = False
-            user.verification_code = None
-            user.code_created_at = None
-            user.save()
-            send_verification_code(user.username)
-            return JsonResponse({'message': 'Verification code sent successfully.'}, status=200)
-
-        # Redirect to profile view or home
-        return redirect('profile', username=user.username)
-    return render(request, "account/edit_profile.html", {"user": user})
-
-
+    return JsonResponse({'message': 'Profile updated successfully.'}, status=200)
