@@ -7,47 +7,44 @@ from django.contrib.auth.decorators import login_required
 from .models import CommunityPost
 from .forms import CommunityPostForm, CommentForm
 from django.db.models import Q
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework.authentication import SessionAuthentication
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
 
 
 # Create your views here.
 
-@csrf_exempt
-@login_required
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def create_post(request):
-    if request.method == 'POST':
-        form = CommunityPostForm(request.POST, request.FILES)
-        if form.is_valid():
-            post = form.save(commit=False)
-            post.author = request.user
-            post.save()
-            return JsonResponse({
-                'status': 'success',
-                'message': 'Post created successfully.',
-                'post_id': post.id,
-            })
-        else:
-            return JsonResponse({
-                'status': 'error',
-                'message': 'Invalid form data.',
-                'errors': form.errors,
-            }, status=400)
+    form = CommunityPostForm(request.data, request.FILES)
+    if form.is_valid():
+        post = form.save(commit=False)
+        post.author = request.user
+        post.save()
+        return JsonResponse({
+            'status': 'success',
+            'message': 'Post created successfully.',
+            'post_id': post.id,
+        })
     else:
         return JsonResponse({
             'status': 'error',
-            'message': 'Invalid request method.',
-        }, status=405)
+            'message': 'Invalid form data.',
+            'errors': form.errors,
+        }, status=400)
 
 
-@login_required
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def community_forum(request):
-    # Get query parameters for sorting and search
-    sort_by = request.GET.get('sort_by', '-created_at')  # Default sort by latest
+    sort_by = request.GET.get('sort_by', '-created_at')
     search_query = request.GET.get('search', '')
 
-    # Base queryset
     posts = CommunityPost.objects.all()
-
-    # Apply search filter
     if search_query:
         posts = posts.filter(
             Q(title__icontains=search_query) |
@@ -55,26 +52,22 @@ def community_forum(request):
             Q(author__username__icontains=search_query)
         )
 
-    # Apply sorting
     posts = posts.order_by(sort_by)
-
-    # Serialize the posts
-    posts_data = serialize('json', posts, fields=(
-        'title', 'content', 'image', 'created_at', 'author'))
+    posts_data = serialize('json', posts, fields=('title', 'content', 'image', 'created_at', 'author'))
 
     return JsonResponse({
         'status': 'success',
         'posts': posts_data,
     }, safe=False)
 
-@csrf_exempt
-@login_required
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
 def post_detail(request, post_id):
     post = get_object_or_404(CommunityPost, id=post_id)
     comments = post.comments.all().order_by('-created_at')
 
     if request.method == 'POST':
-        form = CommentForm(request.POST)
+        form = CommentForm(request.data)
         if form.is_valid():
             comment = form.save(commit=False)
             comment.post = post
