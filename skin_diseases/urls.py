@@ -23,6 +23,6 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('account/', include('account.urls')),
     path('community/', include('community.urls')),
-    path('detect/', include('detect.urls')),
+    #path('detect/', include('detect.urls')),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 ]
