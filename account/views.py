@@ -15,30 +15,30 @@ from django.contrib.auth import logout as auth_logout
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.core.serializers import serialize
-from rest_framework_simplejwt.tokens import RefreshToken, OutstandingToken, BlacklistedToken
+from rest_framework_simplejwt.tokens import RefreshToken, OutstandingToken, BlacklistedToken, AccessToken
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
-
-
-# Create your views here.
-def blacklist_old_tokens(user):
-    tokens = OutstandingToken.objects.filter(user=user)
-    for token in tokens:
-        if not BlacklistedToken.objects.filter(token=token).exists():
-            BlacklistedToken.objects.create(token=token)
+from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework import status
+from django.utils.timezone import now
 
 def generate_verification_code(length=6):
     """Generate a random verification code of given length."""
     return ''.join(random.choices(string.digits, k=length))
 
 
-def get_tokens_for_user(user):
-    refresh = RefreshToken.for_user(user)
-    return {
-        'refresh': str(refresh),
-        'access': str(refresh.access_token),
-    }
+class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    @classmethod
+    def get_token(cls, user):
+        token = super().get_token(user)
+        token['username'] = user.username
+        token['email'] = user.email
+        token['user_type'] = user.user_type
+        return token
 
+class CustomTokenObtainPairView(TokenObtainPairView):
+    serializer_class = CustomTokenObtainPairSerializer
 
 def email_code(user):
     subject = 'Verification Code'
@@ -175,31 +175,35 @@ def send_verification_code(username):
 
 @api_view(['POST'])
 def login(request):
-    if request.method == "POST":
-        username_email = request.POST.get("username_email").lower()
-        password = request.POST.get("password")
+    username_email = request.data.get("username_email", "").strip().lower()
+    password = request.data.get("password")
 
-        user = User.objects.filter(username=username_email).first() or \
-            User.objects.filter(email=username_email).first()
+    if not username_email or not password:
+        return JsonResponse({'error': 'Username/email and password are required.'}, status=400)
 
-        if user is None:
-            return JsonResponse({'error': 'Invalid username or email.'}, status=400)
+    user = User.objects.filter(username=username_email).first() or \
+        User.objects.filter(email=username_email).first()
 
-        if user.is_verified:
-            if check_password(password, user.password):
-                blacklist_old_tokens(user)
-                refresh = RefreshToken.for_user(user)
-                return JsonResponse({
-                    'refresh': str(refresh),
-                    'access': str(refresh.access_token),
-                }, status=200)
-            else:
-                return JsonResponse({'error': 'Invalid password.'}, status=400)
-        else:
-            return redirect('verify_email')
+    if user is None:
+        return JsonResponse({'error': 'Invalid username or email.'}, status=400)
 
-    return render(request, "account/login.html")
+    if not user.is_verified:
+        return JsonResponse({'error': 'Email not verified. Please verify your email.'}, status=403)
 
+    if user.check_password(password):
+        token = CustomTokenObtainPairSerializer.get_token(user)
+        return JsonResponse({
+            'access': str(token.access_token),
+            'refresh': str(token),
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email,
+                'user_type': user.user_type,
+            }
+        }, safe=False, status=status.HTTP_200_OK)
+    
+    return JsonResponse({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
 
 @csrf_exempt
 def forgot_password(request):
@@ -301,11 +305,37 @@ def view_profile(request, username):
 #     return render(request, "account/home.html", context)
 
 
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def logout(request):
-    auth_logout(request)
-    return JsonResponse({'message': 'Logged out successfully.'}, status=200)
+    try:
+        refresh_token = request.data.get("refresh")
+        access_token = request.data.get("access")
 
+        if not refresh_token or not access_token:
+            return JsonResponse({"error": "Both access and refresh tokens are required"}, status=400)
 
+        # Blacklist the Refresh Token
+        refresh = RefreshToken(refresh_token)
+        refresh.blacklist()
+
+        # Blacklist the Access Token
+        access = AccessToken(access_token)
+        
+        # Check if the access token already exists in OutstandingToken
+        outstanding_token, created = OutstandingToken.objects.get_or_create(
+            jti=access["jti"],
+            defaults={"token": str(access), "user": request.user, "expires_at": now()}
+        )
+
+        # Blacklist the access token only if it was newly created
+        BlacklistedToken.objects.get_or_create(token=outstanding_token)
+
+        return JsonResponse({"message": "Successfully logged out"}, status=200)
+
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=400)    
+                
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def edit_profile(request):
