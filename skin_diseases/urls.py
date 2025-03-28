@@ -25,4 +25,5 @@ urlpatterns = [
     path('community/', include('community.urls')),
     #path('detect/', include('detect.urls')),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('chatbot/', include('chatbot.urls'))
 ]
