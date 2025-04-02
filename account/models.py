@@ -5,6 +5,7 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 import os
 from storages.backends.s3boto3 import S3Boto3Storage
+from django.conf import settings
 
 # Create your models here.
 GENDER_CHOICES = [
@@ -136,6 +137,7 @@ class User(AbstractUser):
         default='pending'
     )
     verification_notes = models.TextField(blank=True, null=True)
+    verified_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="verified_users")
 
     objects = AdminUserManager()
 

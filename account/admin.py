@@ -1,73 +1,90 @@
 from django.contrib import admin
 from django.utils.html import format_html
-from .models import User
+from django.core.mail import send_mail
+from django.conf import settings
+from .models import User, AdminUser
 
 
+@admin.register(User)
 class UserAdmin(admin.ModelAdmin):
-    list_display = ('username', 'email', 'user_type', 'is_verified',
-                    'verification_status', 'verification_image_preview')
+    list_display = (
+        'id', 'email', 'username', 'user_type', 
+        'is_verified', 'verification_status', 'verified_by', 'verification_image_preview'
+    )
+    search_fields = ('email', 'username')
     list_filter = ('user_type', 'is_verified', 'verification_status')
-    search_fields = ('username', 'email', 'f_name', 'l_name')
-    readonly_fields = ('verification_image_preview',)
+    ordering = ('id',)
+    readonly_fields = ('verification_image_display', 'verified_by')
+
+    def verification_image_preview(self, obj):
+        """Show image in the user list view."""
+        if obj.verification_image:
+            return format_html('<img src="{}" width="100" height="100" style="border-radius: 5px;" />', obj.verification_image.url)
+        return "No Image"
+    verification_image_preview.short_description = "Verification Image"
+
+    def verification_image_display(self, obj):
+        """Show image in the detailed user view."""
+        if obj.verification_image:
+            return format_html('<img src="{}" width="300" height="300" style="border-radius: 10px;" />', obj.verification_image.url)
+        return "No Image"
+    verification_image_display.short_description = "Verification Image"
+
     fieldsets = (
-        (None, {
-            'fields': ('username', 'email', 'password')
+        ("User Information", {
+            "fields": ("email", "username", "f_name", "l_name", "date_of_birth", "gender", "user_type", "is_verified")
         }),
-        ('Personal Info', {
-            'fields': ('f_name', 'l_name', 'date_of_birth', 'gender')
-        }),
-        ('Professional Info', {
-            'fields': ('user_type', 'specialization', 'clinic_details', 'info')
-        }),
-        ('Verification', {
-            'fields': ('is_verified', 'verification_status', 'verification_image', 'verification_image_preview', 'verification_notes')
-        }),
-        ('Permissions', {
-            'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions')
-        }),
-        ('Important dates', {
-            'fields': ('last_login', 'date_joined')
+        ("Verification Details", {
+            "fields": ("verification_status", "verification_notes", "verification_image_display", "verified_by"),
         }),
     )
 
-    actions = ['approve_doctors', 'reject_doctors']
+    def save_model(self, request, obj, form, change):
+        """Send an email upon approval or rejection of doctor verification and store admin who verified."""
+        if change:  # Only trigger on updates
+            old_user = User.objects.get(pk=obj.pk)  # Get previous state
 
-    def verification_image_preview(self, obj):
-        if obj.verification_image:
-            return format_html('<img src="{}" style="max-height: 100px; max-width: 100px;" />', obj.verification_image.url)
-        return "No document uploaded"
-    verification_image_preview.short_description = 'Verification Document Preview'
+            if old_user.verification_status != obj.verification_status:
+                obj.verified_by = request.user  # Store admin who approved/rejected
 
-    def approve_doctors(self, request, queryset):
-        updated = queryset.filter(
-            verification_status__in=['pending', 'rejected'],
-            is_verified=False
-        ).update(
-            user_type='Doctor',
-            verification_status='approved',
-            is_verified=True
-        )
-        self.message_user(
-            request, f"Approved and converted {updated} users to Doctors")
+                # Determine if it's an approval or rejection
+                if obj.verification_status == "approved":
+                    subject = "Your Account Has Been Verified!"
+                    message = (
+                        f"Dear {obj.f_name},\n\n"
+                        "Your account as a Doctor has been successfully verified. "
+                        "You now have full access to our platform.\n\n"
+                        "Thank you for using our platform!"
+                    )
+                elif obj.verification_status == "rejected":
+                    subject = "Your Account Verification Was Rejected"
+                    message = (
+                        f"Dear {obj.f_name},\n\n"
+                        "Unfortunately, your verification request was not approved. "
+                        "Please review the following reason:\n\n"
+                        f"Reason: {obj.verification_notes if obj.verification_notes else 'Not specified.'}\n\n"
+                        "You can reapply or contact support for further information.\n\n"
+                        f"Rejected by: {request.user.get_full_name()} ({request.user.email})"
+                    )
+                else:
+                    super().save_model(request, obj, form, change)
+                    return  # No email needed if status remains unchanged
 
-    def reject_doctors(self, request, queryset):
-        queryset.filter(user_type='Doctor').update(
-            verification_status='rejected',
-            is_verified=False
-        )
-        self.message_user(
-            request, f"Rejected {queryset.count()} doctor applications")
+                # Send email
+                send_mail(
+                    subject,
+                    message,
+                    settings.DEFAULT_FROM_EMAIL,  # Ensure this is set in settings.py
+                    [obj.email],
+                    fail_silently=False,
+                )
 
-    def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        if request.user.is_superuser:
-            return qs
-        return qs.filter(is_superuser=False)
-
-    def get_readonly_fields(self, request, obj=None):
-        if obj and not request.user.is_superuser:
-            return self.readonly_fields + ('user_type', 'is_verified', 'verification_status')
-        return self.readonly_fields
+        super().save_model(request, obj, form, change)
 
 
-admin.site.register(User, UserAdmin)
+@admin.register(AdminUser)
+class AdminUserAdmin(admin.ModelAdmin):
+    list_display = ('id', 'email', 'username', 'is_staff', 'is_superuser')
+    search_fields = ('email', 'username')
+    list_filter = ('is_staff', 'is_superuser')
+    ordering = ('id',)
