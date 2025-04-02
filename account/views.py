@@ -22,6 +22,10 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework import status
 from django.utils.timezone import now
+from django.core.files.storage import FileSystemStorage
+from django.core.files.base import ContentFile
+import os
+
 
 def generate_verification_code(length=6):
     """Generate a random verification code of given length."""
@@ -37,8 +41,10 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         token['user_type'] = user.user_type
         return token
 
+
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
+
 
 def email_code(user):
     subject = 'Verification Code'
@@ -97,6 +103,22 @@ def signup(request):
         except ValidationError:
             return JsonResponse({'error': 'Last name must contain only letters.'}, status=400)
 
+        # Handle doctor verification image
+        verification_image = None
+        if user_type == "Doctor":
+            if 'verification_image' not in request.FILES:
+                return JsonResponse({'error': 'Doctor verification document is required'}, status=400)
+
+            verification_image = request.FILES['verification_image']
+            # Validate file type
+            allowed_types = ['image/jpeg', 'image/png', 'application/pdf']
+            if verification_image.content_type not in allowed_types:
+                return JsonResponse({'error': 'Only JPEG, PNG, or PDF files are allowed'}, status=400)
+
+            # Validate file size (max 5MB)
+            if verification_image.size > 5 * 1024 * 1024:
+                return JsonResponse({'error': 'File size must be less than 5MB'}, status=400)
+
         user = User(
             f_name=f_name,
             l_name=l_name,
@@ -105,21 +127,69 @@ def signup(request):
             gender=gender,
             password=make_password(password),
             username=username,
-            user_type=user_type,
+            user_type='Patient',
+            original_user_type=user_type,
             info=info,
             specialization=specialization,
             clinic_details=clinic_details,
             is_verified=False,
+            verification_status='pending' if user_type == 'Doctor' else 'approved'
         )
+
+        if user_type == 'Doctor':
+            user.verification_image = request.FILES['verification_image']
+
         user.save()
 
         try:
-            send_verification_code(user.username)
-            return JsonResponse({'message': 'User registered successfully. Please check your email for the verification code.'}, status=200)
+            user.save()  # Save user first
+            send_verification_code(user.username)  # Then send email
+
+            return JsonResponse({
+                'message': 'User registered successfully. Please check your email for the verification code.',
+            }, status=200)
+
         except Exception as e:
-            user.delete()
-            return JsonResponse({'error': 'Failed to send email. Please try again later.'}, status=400)
-    return render(request, "account/signup.html")
+            # Only delete if user was saved
+            if user.pk:
+                user.delete()
+
+            # Check if it's an email error specifically
+            if "email" in str(e).lower():
+                return JsonResponse({
+                    'error': 'Failed to send verification email. Please try again later.',
+                    'debug': str(e)  # Remove in production
+                }, status=400)
+            else:
+                return JsonResponse({
+                    'error': 'Registration failed. Please try again.',
+                    'debug': str(e)  # Remove in production
+                }, status=400)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def view_profile(request, username):
+    user = User.objects.filter(username=username).first()
+
+    if user:
+        profile_data = {
+            'f_name': user.f_name,
+            'l_name': user.l_name,
+            'date_of_birth': user.date_of_birth,
+            'gender': user.gender,
+            'username': user.username,
+            'email': user.email,
+            'user_type': user.user_type,
+            'is_verified': user.is_verified,
+            'info': user.info,
+            'specialization': user.specialization,
+            'clinic_details': user.clinic_details,
+            'verification_status': user.verification_status if user.user_type == 'Doctor' else None
+        }
+        return JsonResponse({'user': profile_data}, status=200)
+    else:
+        return JsonResponse({'error': 'User not found.'}, status=404)
 
 
 @csrf_exempt
@@ -202,8 +272,9 @@ def login(request):
                 'user_type': user.user_type,
             }
         }, safe=False, status=status.HTTP_200_OK)
-    
+
     return JsonResponse({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
+
 
 @csrf_exempt
 def forgot_password(request):
@@ -278,31 +349,23 @@ def view_profile(request, username):
     user = User.objects.filter(username=username).first()
 
     if user:
-        get_user_info = [user.f_name, user.l_name, user.date_of_birth, user.gender, user.username, user.email, user.user_type, user.is_verified, user.info,
-                         user.specialization, user.clinic_details]
-        comma_separated = ', '.join(map(str, get_user_info))
-        return JsonResponse({'user': comma_separated}, status=200)
+        profile_data = {
+            'f_name': user.f_name,
+            'l_name': user.l_name,
+            'date_of_birth': user.date_of_birth,
+            'gender': user.gender,
+            'username': user.username,
+            'email': user.email,
+            'user_type': user.user_type,
+            'is_verified': user.is_verified,
+            'info': user.info,
+            'specialization': user.specialization,
+            'clinic_details': user.clinic_details,
+            'verification_status': user.verification_status if user.user_type == 'Doctor' else None
+        }
+        return JsonResponse({'user': profile_data}, status=200)
     else:
         return JsonResponse({'error': 'User not found.'}, status=404)
-
-# def home(request):
-#     # Check if user is logged in
-#     if 'user_id' not in request.session:
-#         # If not logged in, redirect to login page
-#         return redirect('login')
-
-#     # Fetch user details from session
-#     user_id = request.session['user_id']
-#     user = User.objects.get(id=user_id)
-
-#     # Prepare context for the home page
-#     context = {
-#         'user': user,
-#         'user_type': user.user_type,
-#         'username': user.username
-#     }
-
-#     return render(request, "account/home.html", context)
 
 
 @api_view(['POST'])
@@ -321,11 +384,12 @@ def logout(request):
 
         # Blacklist the Access Token
         access = AccessToken(access_token)
-        
+
         # Check if the access token already exists in OutstandingToken
         outstanding_token, created = OutstandingToken.objects.get_or_create(
             jti=access["jti"],
-            defaults={"token": str(access), "user": request.user, "expires_at": now()}
+            defaults={"token": str(
+                access), "user": request.user, "expires_at": now()}
         )
 
         # Blacklist the access token only if it was newly created
@@ -334,12 +398,12 @@ def logout(request):
         return JsonResponse({"message": "Successfully logged out"}, status=200)
 
     except Exception as e:
-        return JsonResponse({"error": str(e)}, status=400)    
-                
+        return JsonResponse({"error": str(e)}, status=400)
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def edit_profile(request):
-
     user = request.user
     data = request.data
 
@@ -382,6 +446,23 @@ def edit_profile(request):
         user.specialization = specialization
         user.clinic_details = clinic_details
         user.info = info
+
+        # Handle new verification image upload if provided
+        if 'verification_image' in request.FILES:
+            verification_image = request.FILES['verification_image']
+            allowed_types = ['image/jpeg', 'image/png', 'application/pdf']
+            if verification_image.content_type not in allowed_types:
+                return JsonResponse({'error': 'Only JPEG, PNG, or PDF files are allowed'}, status=400)
+            if verification_image.size > 5 * 1024 * 1024:
+                return JsonResponse({'error': 'File size must be less than 5MB'}, status=400)
+
+            # Delete old image if exists
+            if user.verification_image:
+                user.verification_image.delete()
+
+            user.verification_image = verification_image
+            # Reset status when new document is uploaded
+            user.verification_status = 'pending'
 
     user.save()
 

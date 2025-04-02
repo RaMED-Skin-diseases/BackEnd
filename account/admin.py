@@ -1,63 +1,73 @@
 from django.contrib import admin
-from .models import User, AdminUser
+from django.utils.html import format_html
+from .models import User
 
 
 class UserAdmin(admin.ModelAdmin):
-    # Define the fields to display in the form based on user type
-    def get_fields(self, request, obj=None):
-        if obj and obj.user_type == 'Doctor':
-            return [
-                'f_name', 'l_name', 'date_of_birth', 'email', 'gender',
-                 'username', 'user_type', 'info', 'specialization',
-                'clinic_details', 'is_verified'
-            ]
-        # Fields for Patient users (doctor-specific fields hidden)
-        return [
-            'f_name', 'l_name', 'date_of_birth', 'email', 'gender',
-             'username', 'user_type', 'is_verified'
-        ]
+    list_display = ('username', 'email', 'user_type', 'is_verified',
+                    'verification_status', 'verification_image_preview')
+    list_filter = ('user_type', 'is_verified', 'verification_status')
+    search_fields = ('username', 'email', 'f_name', 'l_name')
+    readonly_fields = ('verification_image_preview',)
+    fieldsets = (
+        (None, {
+            'fields': ('username', 'email', 'password')
+        }),
+        ('Personal Info', {
+            'fields': ('f_name', 'l_name', 'date_of_birth', 'gender')
+        }),
+        ('Professional Info', {
+            'fields': ('user_type', 'specialization', 'clinic_details', 'info')
+        }),
+        ('Verification', {
+            'fields': ('is_verified', 'verification_status', 'verification_image', 'verification_image_preview', 'verification_notes')
+        }),
+        ('Permissions', {
+            'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions')
+        }),
+        ('Important dates', {
+            'fields': ('last_login', 'date_joined')
+        }),
+    )
 
-    # List the fields to display in the admin list view
-    list_display = ("username", "f_name", "l_name", "user_type", "is_verified")
-    
-    # Add search capability
-    search_fields = ['username', 'email', 'f_name', 'l_name']
+    actions = ['approve_doctors', 'reject_doctors']
 
-    # Define the order of the objects listed in the admin panel
-    ordering = ['username']
+    def verification_image_preview(self, obj):
+        if obj.verification_image:
+            return format_html('<img src="{}" style="max-height: 100px; max-width: 100px;" />', obj.verification_image.url)
+        return "No document uploaded"
+    verification_image_preview.short_description = 'Verification Document Preview'
 
-    # Add filtering options
-    list_filter = ('user_type', 'is_verified')
+    def approve_doctors(self, request, queryset):
+        updated = queryset.filter(
+            verification_status__in=['pending', 'rejected'],
+            is_verified=False
+        ).update(
+            user_type='Doctor',
+            verification_status='approved',
+            is_verified=True
+        )
+        self.message_user(
+            request, f"Approved and converted {updated} users to Doctors")
+
+    def reject_doctors(self, request, queryset):
+        queryset.filter(user_type='Doctor').update(
+            verification_status='rejected',
+            is_verified=False
+        )
+        self.message_user(
+            request, f"Rejected {queryset.count()} doctor applications")
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(is_superuser=False)
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj and not request.user.is_superuser:
+            return self.readonly_fields + ('user_type', 'is_verified', 'verification_status')
+        return self.readonly_fields
 
 
 admin.site.register(User, UserAdmin)
-admin.site.site_header = "Skin Diseases Admin"
-
-
-class CustomUserAdmin(UserAdmin):
-    model = AdminUser
-    list_display = ['username', 'is_staff', 'is_active', 'last_login']
-    
-    # Fieldsets define how fields are arranged in the form
-    fieldsets = (
-        (None, {'fields': ('username', 'password')}),
-        ('Permissions', {'fields': ('is_staff', 'is_active')}),
-        ('Important Dates', {'fields': ('last_login',)}),
-    )
-
-    # Custom add fieldsets for creating a new admin user
-    add_fieldsets = (
-        (None, {
-            'classes': ('wide',),
-            'fields': ('username', 'password1', 'password2', 'is_staff', 'is_active')}
-        ),
-    )
-    
-    # Add search functionality for AdminUser
-    search_fields = ['username', 'email']
-    
-    # Add ordering option for the list
-    ordering = ['username']
-
-
-admin.site.register(AdminUser, CustomUserAdmin)

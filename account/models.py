@@ -1,31 +1,36 @@
 from django.db import models
 from django.core.validators import MinLengthValidator, RegexValidator
-from django.contrib.auth.models import AbstractUser, BaseUserManager, AbstractBaseUser, PermissionsMixin
+from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.core.management.base import BaseCommand
 from django.utils import timezone
-
+import os
+from storages.backends.s3boto3 import S3Boto3Storage
 
 # Create your models here.
-# class AdminUserManager(BaseUserManager):
-#     def create_superuser(self, username, password=None, **extra_fields):
-#         extra_fields.setdefault('is_staff', True)
-#         extra_fields.setdefault('is_superuser', True)
+GENDER_CHOICES = [
+    ('Male', 'Male'),
+    ('Female', 'Female'),
+]
 
-#         if extra_fields.get('is_staff') is not True:
-#             raise ValueError('Superuser must have is_staff=True.')
-#         if extra_fields.get('is_superuser') is not True:
-#             raise ValueError('Superuser must have is_superuser=True.')
+USER_TYPE_CHOICES = [
+    ('Patient', 'Patient'),
+    ('Doctor', 'Doctor'),
+]
 
-#         return self.create_user(username, password, **extra_fields)
+username_validator = RegexValidator(r'^(?=.*[a-zA-Z])[a-zA-Z0-9._-]*$',
+                                    "Username must include at least one letter and can only contain '.', '_', or '-'"
+                                    )
 
-#     def create_user(self, username, password=None, **extra_fields):
-#         if not username:
-#             raise ValueError('The Username field must be set')
+name_validator = RegexValidator(
+    r'^[a-zA-Z]+$', 'name must contain only letters.')
 
-#         user = self.model(username=username, **extra_fields)
-#         user.set_password(password)
-#         user.save(using=self._db)
-#         return user
+
+class DoctorVerificationStorage(S3Boto3Storage):
+    location = 'doctor-verifications'
+    file_overwrite = False
+    default_acl = 'private'
+
+
 class AdminUserManager(BaseUserManager):
     def create_superuser(self, username, email, password=None, **extra_fields):
         extra_fields.setdefault('is_staff', True)
@@ -54,58 +59,9 @@ class AdminUserManager(BaseUserManager):
         return user
 
 
-# class AdminUser(AbstractBaseUser, PermissionsMixin):
-#     username = models.CharField(max_length=50, unique=True)
-#     is_staff = models.BooleanField(default=False)
-#     is_active = models.BooleanField(default=True)
-
-#     # Add custom related names
-#     groups = models.ManyToManyField(
-#         'auth.Group',
-#         verbose_name='admin groups',
-#         blank=True,
-#         help_text='The groups this admin belongs to.',
-#         related_name='admin_user_set',
-#         related_query_name='admin_user'
-#     )
-#     user_permissions = models.ManyToManyField(
-#         'auth.Permission',
-#         verbose_name='admin user permissions',
-#         blank=True,
-#         help_text='Specific permissions for this admin user.',
-#         related_name='admin_user_set',
-#         related_query_name='admin_user'
-#     )
-
-#     objects = AdminUserManager()
-
-#     USERNAME_FIELD = 'username'
-#     REQUIRED_FIELDS = []
-
-#     def __str__(self):
-#         return self.username
-
-#     class Meta:
-#         verbose_name = 'Admin User'
-#         verbose_name_plural = 'Admin Users'
-
-
-GENDER_CHOICES = [
-    ('Male', 'Male'),
-    ('Female', 'Female'),
-]
-
-USER_TYPE_CHOICES = [
-    ('Patient', 'Patient'),
-    ('Doctor', 'Doctor'),
-]
-
-username_validator = RegexValidator(r'^(?=.*[a-zA-Z])[a-zA-Z0-9._-]*$',
-                                    "Username must include at least one letter and can only contain '.', '_', or '-'"
-                                    )
-
-name_validator = RegexValidator(
-    r'^[a-zA-Z]+$', 'name must contain only letters.')
+def doctor_verification_upload_path(instance, filename):
+    # This will create paths like: doctor_verifications/username/filename
+    return os.path.join('doctor_verifications', instance.username, filename)
 
 
 class User(AbstractUser):
@@ -146,6 +102,13 @@ class User(AbstractUser):
     user_type = models.CharField(
         max_length=7, choices=USER_TYPE_CHOICES, blank=False, null=False)
 
+    original_user_type = models.CharField(
+        max_length=7,
+        choices=USER_TYPE_CHOICES,
+        blank=True,
+        null=True
+    )
+
     info = models.TextField(blank=True, null=True)
     specialization = models.CharField(max_length=100, null=True)
     clinic_details = models.TextField(blank=True, null=True)
@@ -154,6 +117,26 @@ class User(AbstractUser):
     code_created_at = models.DateTimeField(
         auto_now_add=True, blank=True, null=True)
     is_verified = models.BooleanField(default=False)
+
+    verification_image = models.ImageField(
+        upload_to='doctor-verifications/',
+        storage=DoctorVerificationStorage(),  # Explicitly use our storage class
+        blank=True,
+        null=True,
+        verbose_name="Doctor Verification Document",
+        help_text="Upload your medical license or ID for verification"
+    )
+    verification_status = models.CharField(
+        max_length=20,
+        choices=[
+            ('pending', 'Pending'),
+            ('approved', 'Approved'),
+            ('rejected', 'Rejected')
+        ],
+        default='pending'
+    )
+    verification_notes = models.TextField(blank=True, null=True)
+
     objects = AdminUserManager()
 
     def save(self, *args, **kwargs):
@@ -161,11 +144,17 @@ class User(AbstractUser):
             self.email = self.email.lower()
         if self.username:
             self.username = self.username.lower()
+        if self.user_type == 'Doctor' and self.verification_status != 'approved':
+            self.user_type = 'Patient'
         super(User, self).save(*args, **kwargs)
 
     class Meta:
         verbose_name = "User Account"
         verbose_name_plural = "User Accounts"
+
+    @property
+    def requires_verification(self):
+        return self.user_type == 'Doctor' and not self.is_verified
 
 
 class AdminUser(User):
@@ -212,5 +201,3 @@ class Command(BaseCommand):
         except Exception as e:
             self.stdout.write(self.style.ERROR(
                 f'Error creating superuser: {str(e)}'))
-
-
