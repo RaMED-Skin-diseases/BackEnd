@@ -401,72 +401,78 @@ def logout(request):
         return JsonResponse({"error": str(e)}, status=400)
 
 
-@api_view(['POST'])
+@api_view(['PATCH'])
 @permission_classes([IsAuthenticated])
 def edit_profile(request):
     user = request.user
     data = request.data
 
-    f_name = data.get("f_name")
-    l_name = data.get("l_name")
-    date_of_birth = data.get("date_of_birth")
-    gender = data.get("gender")
-    email = data.get("email")
-    username = data.get("username")
+    # Update fields only if they are provided
+    if "f_name" in data:
+        f_name = data.get("f_name")
+        try:
+            RegexValidator(r'^[a-zA-Z]+$')(f_name)
+        except ValidationError:
+            return JsonResponse({'error': 'First name must contain only letters.'}, status=400)
+        user.f_name = f_name
 
-    try:
-        RegexValidator(r'^[a-zA-Z]+$')(f_name)
-    except ValidationError:
-        return JsonResponse({'error': 'First name must contain only letters.'}, status=400)
+    if "l_name" in data:
+        l_name = data.get("l_name")
+        try:
+            RegexValidator(r'^[a-zA-Z]+$')(l_name)
+        except ValidationError:
+            return JsonResponse({'error': 'Last name must contain only letters.'}, status=400)
+        user.l_name = l_name
 
-    try:
-        RegexValidator(r'^[a-zA-Z]+$')(l_name)
-    except ValidationError:
-        return JsonResponse({'error': 'Last name must contain only letters.'}, status=400)
+    if "date_of_birth" in data:
+        user.date_of_birth = data.get("date_of_birth")
 
-    if User.objects.filter(email=email).exists() and user.email != email:
-        return JsonResponse({'error': 'Email already exists'}, status=400)
-    if User.objects.filter(username=username).exists() and user.username != username:
-        return JsonResponse({'error': 'Username already exists'}, status=400)
+    if "gender" in data:
+        user.gender = data.get("gender")
 
-    old_email = user.email
+    if "email" in data:
+        email = data.get("email")
+        if User.objects.filter(email=email).exists() and user.email != email:
+            return JsonResponse({'error': 'Email already exists'}, status=400)
+        old_email = user.email
+        user.email = email
 
-    user.f_name = f_name
-    user.l_name = l_name
-    user.date_of_birth = date_of_birth
-    user.gender = gender
-    user.username = username
-    user.email = email
+    if "username" in data:
+        username = data.get("username")
+        if User.objects.filter(username=username).exists() and user.username != username:
+            return JsonResponse({'error': 'Username already exists'}, status=400)
+        user.username = username
 
     # If user is a doctor, allow updating additional fields
     if user.user_type == "Doctor":
-        info = data.get("info")
-        specialization = data.get("specialization")
-        clinic_details = data.get("clinic_details")
-        user.specialization = specialization
-        user.clinic_details = clinic_details
-        user.info = info
+        if "info" in data:
+            user.info = data.get("info")
+        if "specialization" in data:
+            user.specialization = data.get("specialization")
+        if "clinic_details" in data:
+            user.clinic_details = data.get("clinic_details")
 
         # Handle new verification image upload if provided
-        if 'verification_image' in request.FILES:
-            verification_image = request.FILES['verification_image']
-            allowed_types = ['image/jpeg', 'image/png', 'application/pdf']
-            if verification_image.content_type not in allowed_types:
-                return JsonResponse({'error': 'Only JPEG, PNG, or PDF files are allowed'}, status=400)
-            if verification_image.size > 5 * 1024 * 1024:
-                return JsonResponse({'error': 'File size must be less than 5MB'}, status=400)
+    if 'verification_image' in request.FILES:
+        verification_image = request.FILES['verification_image']
+        allowed_types = ['image/jpeg', 'image/png', 'application/pdf']
+        if verification_image.content_type not in allowed_types:
+            return JsonResponse({'error': 'Only JPEG, PNG, or PDF files are allowed'}, status=400)
+        if verification_image.size > 5 * 1024 * 1024:
+            return JsonResponse({'error': 'File size must be less than 5MB'}, status=400)
 
-            # Delete old image if exists
-            if user.verification_image:
-                user.verification_image.delete()
+        # Delete old image if exists
+        if user.verification_image:
+            user.verification_image.delete()
 
-            user.verification_image = verification_image
-            # Reset status when new document is uploaded
-            user.verification_status = 'pending'
+        user.verification_image = verification_image
+        # Reset verification status when a new document is uploaded
+        user.verification_status = 'pending'
 
     user.save()
 
-    if old_email != email:
+    # If email changed, reset verification
+    if "email" in data and old_email != email:
         user.is_verified = False
         user.verification_code = None
         user.code_created_at = None
