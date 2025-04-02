@@ -146,8 +146,15 @@ class User(AbstractUser):
             self.email = self.email.lower()
         if self.username:
             self.username = self.username.lower()
-        if self.user_type == 'Doctor' and self.verification_status != 'approved':
-            self.user_type = 'Patient'
+
+        # Ensure correct default verification status
+        if not self.pk:  # Only for new users
+            if self.user_type == 'Doctor':
+                self.verification_status = 'pending'
+                self.user_type = 'Patient'  # Start as Patient until approval
+            else:
+                self.verification_status = 'patient'
+
         super(User, self).save(*args, **kwargs)
 
     class Meta:
