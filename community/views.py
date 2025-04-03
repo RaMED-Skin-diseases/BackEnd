@@ -1,3 +1,5 @@
+# views.py
+
 from django.shortcuts import render
 from django.http import JsonResponse
 from django.core.serializers import serialize
@@ -11,11 +13,6 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.authentication import SessionAuthentication
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
-
-
-# Create your views here.
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -29,6 +26,7 @@ def create_post(request):
             'status': 'success',
             'message': 'Post created successfully.',
             'post_id': post.id,
+            'image_url': post.get_image_url(),
         })
     else:
         return JsonResponse({
@@ -36,7 +34,6 @@ def create_post(request):
             'message': 'Invalid form data.',
             'errors': form.errors,
         }, status=400)
-
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -49,16 +46,32 @@ def community_forum(request):
         posts = posts.filter(
             Q(title__icontains=search_query) |
             Q(content__icontains=search_query) |
-            Q(author__username__icontains=search_query)
+            Q(author__username__icontains=search_query) |
+            Q(author__first_name__icontains=search_query) |
+            Q(author__last_name__icontains=search_query) |
+            Q(comments__content__icontains=search_query) |
+            Q(comments__author__username__icontains=search_query) |
+            Q(comments__author__first_name__icontains=search_query) |
+            Q(comments__author__last_name__icontains=search_query)
         )
 
     posts = posts.order_by(sort_by)
-    posts_data = serialize('json', posts, fields=('title', 'content', 'image', 'created_at', 'author'))
+    posts_data = [
+        {
+            'id': post.id,
+            'title': post.title,
+            'content': post.content,
+            'image': post.get_image_url(),
+            'created_at': post.created_at,
+            'author': post.author.username,
+        }
+        for post in posts
+    ]
 
     return JsonResponse({
         'status': 'success',
         'posts': posts_data,
-    }, safe=False)
+    })
 
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
@@ -89,7 +102,7 @@ def post_detail(request, post_id):
         'id': post.id,
         'title': post.title,
         'content': post.content,
-        'image': post.image.url if post.image else None,
+        'image': post.get_image_url(),
         'created_at': post.created_at,
         'author': post.author.username,
     }

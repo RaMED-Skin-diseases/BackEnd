@@ -1,19 +1,37 @@
+# models.py
+
 from django.db import models
 from account.models import User
+from storages.backends.s3boto3 import S3Boto3Storage
 
-# Create your models here.
+
+class CommunityImageStorage(S3Boto3Storage):
+    location = 'community_images'
+    file_overwrite = False
+    default_acl = 'private'  # Or 'private' if you prefer
+
+
 class CommunityPost(models.Model):
     author = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name='community_posts')
     title = models.CharField(max_length=200, blank=False, null=False)
     content = models.TextField(blank=False, null=False)
     image = models.ImageField(
-        upload_to='community_images/', blank=True, null=True)
+        upload_to='community_images/',
+        storage=CommunityImageStorage(),  # Add this line
+        blank=True,
+        null=True
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return self.title
+
+    def get_image_url(self):
+        if self.image:
+            return self.image.url
+        return None
 
     class Meta:
         verbose_name = "Community Post"
@@ -33,7 +51,6 @@ class Comment(models.Model):
         return f"Comment by {self.author.username} on {self.post.title}"
 
     def save(self, *args, **kwargs):
-        # Ensure only doctors can comment
         if self.author.user_type != 'Doctor':
             raise ValueError("Only doctors are allowed to comment.")
         super().save(*args, **kwargs)
