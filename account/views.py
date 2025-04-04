@@ -196,7 +196,6 @@ def view_profile(request, username):
 def verify_email(request):
     if request.method == "POST":
         email_username = request.POST.get("email")
-        email_username = email_username.lower()
         code = request.POST.get("verification_code")
         expiry_time = timezone.timedelta(minutes=10)
         try:
