@@ -19,7 +19,7 @@ def send_image_to_api(request):
         temp_image_path = default_storage.save(f"temp/{image.name}", image)
 
         # API endpoint
-        api_url = "http://localhost:8000/predict/"
+        api_url = "http://deployment-production-c256.up.railway.app/predict/"
 
         # Open the saved image file in binary mode
         with default_storage.open(temp_image_path, "rb") as image_file:
