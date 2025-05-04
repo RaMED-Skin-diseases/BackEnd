@@ -7,6 +7,11 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import api_view, permission_classes
 import json
+from dotenv import load_dotenv
+import os
+
+
+load_dotenv()
 
 
 @api_view(['POST'])
@@ -19,11 +24,12 @@ def send_image_to_api(request):
         temp_image_path = default_storage.save(f"temp/{image.name}", image)
 
         # API endpoint
-        api_url = "http://deployment-production-c256.up.railway.app/predict/"
+        api_url = os.getenv('API_URL')
 
         # Open the saved image file in binary mode
         with default_storage.open(temp_image_path, "rb") as image_file:
-            files = {"file": image_file}  # Adjust the key if the API requires a different one
+            # Adjust the key if the API requires a different one
+            files = {"file": image_file}
 
             # Send request to external API
             response = requests.post(api_url, files=files)
@@ -39,7 +45,8 @@ def send_image_to_api(request):
                 diagnosis = Diagnosis.objects.create(
                     user=request.user,  # assuming the user is authenticated
                     image=image,  # Save the image uploaded (stored in S3)
-                    diagnosis_result=json.dumps(diagnosis_data),  # Save the diagnosis result as JSON
+                    # Save the diagnosis result as JSON
+                    diagnosis_result=json.dumps(diagnosis_data),
                 )
 
                 return JsonResponse({
