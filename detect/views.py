@@ -24,7 +24,7 @@ def send_image_to_api(request):
         temp_image_path = default_storage.save(f"temp/{image.name}", image)
 
         # API endpoint
-        api_url = os.getenv('API_URL')
+        api_url = os.getenv('MODEL_URL')
 
         # Open the saved image file in binary mode
         with default_storage.open(temp_image_path, "rb") as image_file:
