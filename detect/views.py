@@ -37,9 +37,7 @@ def send_image_to_api(request):
                     "error": res1.text}
 
             with default_storage.open(temp_image_path, "rb") as image_file2:
-                files2 = {
-                    "file": (image.name, image_file2, image.content_type or "application/octet-stream")
-                }
+                files2 = {"file": image_file2}
                 res2 = requests.post(api_url_2, files=files2)
                 responses["model2"] = res2.json() if res2.status_code == 200 else {
                     "error": res2.text}
@@ -52,7 +50,6 @@ def send_image_to_api(request):
             return JsonResponse({"error": "One of the models returned an invalid JSON response"}, status=500)
 
         default_storage.delete(temp_image_path)
-
         # Extract predictions and confidences from responses if available
         best_prediction = None
         best_confidence = 0.0
@@ -60,12 +57,19 @@ def send_image_to_api(request):
 
         for model_key in ["model1", "model2"]:
             result = responses.get(model_key)
-            if result and "confidence" in result and "predicted_class" in result:
-                confidence = float(result["confidence"])
-                if confidence > best_confidence:
-                    best_confidence = confidence
-                    best_prediction = result["predicted_class"]
-                    best_model = model_key
+            if result and "probability" in result and "class" in result:
+                try:
+                    # Clean and convert probability string to float
+                    confidence_str = result["probability"]
+                    confidence = float(
+                        str(confidence_str).replace('%', '').strip())
+
+                    if confidence > best_confidence:
+                        best_confidence = confidence
+                        best_prediction = result["class"]
+                        best_model = model_key
+                except ValueError:
+                    continue
 
         # Apply threshold check
         if best_confidence < 85.0 or best_prediction is None:
@@ -75,8 +79,8 @@ def send_image_to_api(request):
         else:
             final_result = {
                 "model": best_model,
-                "predicted_class": best_prediction,
-                "confidence": best_confidence,
+                "class": best_prediction,
+                "probability": f"{best_confidence}%",
             }
 
         # Save the diagnosis with full results (optional, you can decide what to save)
