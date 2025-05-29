@@ -15,51 +15,83 @@ load_dotenv()
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])  # Ensure the user is authenticated
+@permission_classes([IsAuthenticated])
 def send_image_to_api(request):
     if request.method == "POST" and request.FILES.get("image"):
         image = request.FILES["image"]
 
-        # Save the uploaded file temporarily
         temp_image_path = default_storage.save(f"temp/{image.name}", image)
 
-        # API endpoint
-        api_url = os.getenv('MODEL_URL')
+        api_url_1 = os.getenv('PYTORCH_URL')
+        api_url_2 = os.getenv('TENSORFLOW_URL')
 
-        # Open the saved image file in binary mode
-        with default_storage.open(temp_image_path, "rb") as image_file:
-            # Adjust the key if the API requires a different one
-            files = {"file": image_file}
+        responses = {}
 
-            # Send request to external API
-            response = requests.post(api_url, files=files)
+        try:
+            with default_storage.open(temp_image_path, "rb") as image_file1:
+                files1 = {
+                    "file": (image.name, image_file1, image.content_type or "application/octet-stream")
+                }
+                res1 = requests.post(api_url_1, files=files1)
+                responses["model1"] = res1.json() if res1.status_code == 200 else {
+                    "error": res1.text}
 
-        # Remove the temporary file after sending
+            with default_storage.open(temp_image_path, "rb") as image_file2:
+                files2 = {
+                    "file": (image.name, image_file2, image.content_type or "application/octet-stream")
+                }
+                res2 = requests.post(api_url_2, files=files2)
+                responses["model2"] = res2.json() if res2.status_code == 200 else {
+                    "error": res2.text}
+
+        except requests.exceptions.RequestException as e:
+            default_storage.delete(temp_image_path)
+            return JsonResponse({"error": f"Error communicating with models: {str(e)}"}, status=500)
+        except json.JSONDecodeError:
+            default_storage.delete(temp_image_path)
+            return JsonResponse({"error": "One of the models returned an invalid JSON response"}, status=500)
+
         default_storage.delete(temp_image_path)
 
-        # Handle the API response
-        try:
-            diagnosis_data = response.json()  # Assuming the API returns JSON
-            if diagnosis_data:
-                # Save the diagnosis to the database with the image
-                diagnosis = Diagnosis.objects.create(
-                    user=request.user,  # assuming the user is authenticated
-                    image=image,  # Save the image uploaded (stored in S3)
-                    # Save the diagnosis result as JSON
-                    diagnosis_result=json.dumps(diagnosis_data),
-                )
+        # Extract predictions and confidences from responses if available
+        best_prediction = None
+        best_confidence = 0.0
+        best_model = None
 
-                return JsonResponse({
-                    "status": "success",
-                    "message": "Diagnosis saved successfully.",
-                    "diagnosis_id": diagnosis.id,
-                    "diagnosis_result": diagnosis_data,
-                })
-            else:
-                return JsonResponse({"error": "No diagnosis result found"}, status=500)
+        for model_key in ["model1", "model2"]:
+            result = responses.get(model_key)
+            if result and "confidence" in result and "predicted_class" in result:
+                confidence = float(result["confidence"])
+                if confidence > best_confidence:
+                    best_confidence = confidence
+                    best_prediction = result["predicted_class"]
+                    best_model = model_key
 
-        except requests.exceptions.JSONDecodeError:
-            return JsonResponse({"error": "Invalid response from API"}, status=500)
+        # Apply threshold check
+        if best_confidence < 85.0 or best_prediction is None:
+            final_result = {
+                "message": "The model couldn't detect your disease with sufficient confidence."
+            }
+        else:
+            final_result = {
+                "model": best_model,
+                "predicted_class": best_prediction,
+                "confidence": best_confidence,
+            }
+
+        # Save the diagnosis with full results (optional, you can decide what to save)
+        diagnosis = Diagnosis.objects.create(
+            user=request.user,
+            image=image,
+            diagnosis_result=json.dumps(final_result),
+        )
+
+        return JsonResponse({
+            "status": "success",
+            "message": "Diagnosis saved successfully.",
+            "diagnosis_id": diagnosis.id,
+            "diagnosis_result": final_result,
+        })
 
     return JsonResponse({"error": "Invalid request"}, status=400)
 
