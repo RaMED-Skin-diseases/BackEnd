@@ -25,7 +25,8 @@ DEBUG = getenv('IS_DEVELOPMENT', True)
 
 
 ALLOWED_HOSTS = [
-    getenv('APP_HOST', 'localhost'),
+    os.getenv('AWS_DOMAIN'),
+    os.getenv('OUR_DOMAIN'),
 ]
 
 # MEDIA_URL = '/media/'  # URL prefix for media files
@@ -85,10 +86,11 @@ REST_FRAMEWORK = {
 }
 
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:8081",  # Add the React Native app's origin
+    "https://skinwise.tech",
 ]
 CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
+
 
 ROOT_URLCONF = 'skin_diseases.urls'
 
