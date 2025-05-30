@@ -19,71 +19,53 @@ load_dotenv()
 def send_image_to_api(request):
     if request.method == "POST" and request.FILES.get("image"):
         image = request.FILES["image"]
-
         temp_image_path = default_storage.save(f"temp/{image.name}", image)
 
-        api_url_1 = os.getenv('PYTORCH_URL')
-        api_url_2 = os.getenv('TENSORFLOW_URL')
-
-        responses = {}
-
+        api_url = os.getenv('TENSORFLOW_URL')
         try:
-            with default_storage.open(temp_image_path, "rb") as image_file1:
-                files1 = {
-                    "file": (image.name, image_file1, image.content_type or "application/octet-stream")
+            with default_storage.open(temp_image_path, "rb") as image_file:
+                files = {
+                    "file": (image.name, image_file, image.content_type or "application/octet-stream")
                 }
-                res1 = requests.post(api_url_1, files=files1)
-                responses["model1"] = res1.json() if res1.status_code == 200 else {
-                    "error": res1.text}
+                res = requests.post(api_url, files=files)
+                if res.status_code != 200:
+                    raise ValueError(
+                        f"TensorFlow API returned error: {res.text}")
 
-            with default_storage.open(temp_image_path, "rb") as image_file2:
-                files2 = {"file": image_file2}
-                res2 = requests.post(api_url_2, files=files2)
-                responses["model2"] = res2.json() if res2.status_code == 200 else {
-                    "error": res2.text}
+                result = res.json()
 
         except requests.exceptions.RequestException as e:
             default_storage.delete(temp_image_path)
-            return JsonResponse({"error": f"Error communicating with models: {str(e)}"}, status=500)
+            return JsonResponse({"error": f"Error communicating with the model: {str(e)}"}, status=500)
         except json.JSONDecodeError:
             default_storage.delete(temp_image_path)
-            return JsonResponse({"error": "One of the models returned an invalid JSON response"}, status=500)
+            return JsonResponse({"error": "Model returned an invalid JSON response"}, status=500)
+        except ValueError as e:
+            default_storage.delete(temp_image_path)
+            return JsonResponse({"error": str(e)}, status=500)
 
         default_storage.delete(temp_image_path)
-        # Extract predictions and confidences from responses if available
-        best_prediction = None
-        best_confidence = 0.0
-        best_model = None
 
-        for model_key in ["model1", "model2"]:
-            result = responses.get(model_key)
-            if result and "probability" in result and "class" in result:
-                try:
-                    # Clean and convert probability string to float
-                    confidence_str = result["probability"]
-                    confidence = float(
-                        str(confidence_str).replace('%', '').strip())
+        # Evaluate model response
+        prediction = result.get("class")
+        confidence_str = result.get("probability", "0")
+        try:
+            confidence = float(str(confidence_str).replace('%', '').strip())
+        except ValueError:
+            confidence = 0.0
 
-                    if confidence > best_confidence:
-                        best_confidence = confidence
-                        best_prediction = result["class"]
-                        best_model = model_key
-                except ValueError:
-                    continue
-
-        # Apply threshold check
-        if best_confidence < 85.0 or best_prediction is None:
+        if confidence < 85.0 or not prediction:
             final_result = {
                 "message": "The model couldn't detect your disease with sufficient confidence."
             }
         else:
             final_result = {
-                "model": best_model,
-                "class": best_prediction,
-                "probability": f"{best_confidence}%",
+                "model": "tensorflow",
+                "class": prediction,
+                "probability": f"{confidence}%",
             }
 
-        # Save the diagnosis with full results (optional, you can decide what to save)
+        # Save diagnosis
         diagnosis = Diagnosis.objects.create(
             user=request.user,
             image=image,
