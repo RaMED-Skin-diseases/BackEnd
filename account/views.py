@@ -198,10 +198,10 @@ def verify_email(request):
         email_username = request.POST.get("email")
         code = request.POST.get("verification_code")
         expiry_time = timezone.timedelta(minutes=10)
-        try:
-            user = User.objects.filter(email=email_username, verification_code=code).first() or \
-                User.objects.filter(username=email_username,
-                                    verification_code=code).first()
+        user = User.objects.filter(email=email_username, verification_code=code).first() or \
+            User.objects.filter(username=email_username,
+                                verification_code=code).first()
+        if user:
             if user.code_created_at and timezone.now() - user.code_created_at < expiry_time:
                 user.is_verified = True
                 user.verification_code = None
@@ -210,7 +210,7 @@ def verify_email(request):
                 return JsonResponse({'message': 'Email verified successfully.'}, status=200)
             else:
                 return JsonResponse({'error': 'Invalid verification code or code has expired.'}, status=400)
-        except User.DoesNotExist:
+        else:
             return JsonResponse({'error': 'Invalid verification code or email.'}, status=400)
     return render(request, "account/verify_email.html")
 
